@@ -2,8 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>Control System Master Solver</title>
-    <!-- Local vendor copies (no CDN dependency for core UI) -->
+    <title>Signal Flow Solver (Bosha)</title>
     <script src="jquery-3.6.0.min.js"></script>
 <script src="cytoscape.min.js"></script>
 <script src="lodash.min.js"></script>
@@ -11,7 +10,7 @@
 <script src="cytoscape-edgehandles.min.js"></script>
 <script src="cytoscape-edge-editing.js"></script>
     <script>
-        // Improve readability for long formulas inside the results panel.
+        
         window.MathJax = {
             chtml: { linebreaks: { automatic: true, width: "container" } },
         };
@@ -32,7 +31,7 @@
         .main { flex-grow: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
         #cy { flex: 1 1 auto; min-height: 0; background: #fff; position: relative; outline: none; overflow: hidden; }
          
-        /* Result Panel */
+        
         .result-panel { flex: 0 0 auto; height: 55%; min-height: 240px; max-height: 85vh; background: white; border-top: 4px solid #e74c3c; display: none; z-index: 20; box-shadow: 0 -10px 30px rgba(0,0,0,0.2); position: relative; }
         #resResizeHandle { height: 10px; cursor: row-resize; background: linear-gradient(to bottom, rgba(231,76,60,0.25), rgba(231,76,60,0)); }
         .res-container { height: 100%; display: flex; flex-direction: column; }
@@ -42,7 +41,7 @@
         .hover-item { padding: 10px; margin: 6px 0; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; transition: 0.2s; background: #f9f9f9; }
         .hover-item:hover { background: #fffde7; border-color: #fbc02d; transform: scale(1.01); }
         
-        /* Context Menu */
+        
         .context-menu { display: none; position: fixed; background: white; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); z-index: 1000; width: 160px; border: 1px solid #ccc;}
         .menu-item { padding: 12px 15px; cursor: pointer; border-bottom: 1px solid #eee; font-size: 13px; font-weight: bold; color: #2f3640; }
         .menu-item:hover { background: #f1f2f6; }
@@ -134,7 +133,7 @@
             { selector: 'node.highlight', style: { 'background-color':'#fffde7','border-color':'#fbc02d','border-width':5,'z-index':9999 } },
             { selector: 'node.cursor-node', style: { 'width':0, 'height':0, 'border-width':0, 'opacity':0, 'events':'no' } },
 { selector: '.eh-ghost-node, .eh-handle', style: { 'width':0, 'height':0, 'border-width':0, 'opacity':0, 'events':'no' } },
-            // Bend handles are hidden unless their parent edge is selected (prevents blocking clicks).
+            
             { selector: 'node.bend-handle', style: { 'width':14,'height':14,'background-color':'#fbc02d','border-width':2,'border-color':'#c0392b','label':'','z-index':100000,'display':'none','overlay-padding':10,'overlay-opacity':0 } },
             { selector: 'node.bend-handle.active-handle', style: { 'display':'element' } },
             { selector: 'edge.temp-wire', style: { 'line-style':'dashed','line-color':'#95a5a6','target-arrow-shape':'none','width':2,'label':'','opacity':0.9 } },
@@ -156,7 +155,7 @@
     }
 
     let cy = cytoscape({ container: document.getElementById('cy'), style: styleDef });
-    window.cy = cy; // للاختبار و الـ debug
+    window.cy = cy; 
     window.SFG = {
         cy,
         camera: {
@@ -165,8 +164,7 @@
         },
     };
 
-    // امنع الـ browser context menu عشان كليك يمين يبقى للبرنامج
-    // Prevent browser context menu without breaking Cytoscape's right-click handling.
+    
     cy.container().addEventListener('contextmenu', (ev) => ev.preventDefault(), false);
     document.addEventListener('contextmenu', (ev) => {
         const t = ev.target;
@@ -175,18 +173,18 @@
         }
     }, false);
 
-    // Focus model: لما تختار منطقة الحل، السكرول يبقى للحل حتى لو المؤشر فوق الرسم
-    let activeArea = 'canvas'; // 'canvas' | 'results'
-    let editingLocked = false; // locked while results are visible (keeps solution consistent with the diagram)
+    
+    let activeArea = 'canvas'; 
+    let editingLocked = false; 
 
     function setEditingLocked(locked) {
         editingLocked = Boolean(locked);
         try { document.body.classList.toggle('results-open', editingLocked); } catch(e) {}
 
-        // Disable moving nodes while viewing results (prevents accidental diagram edits).
+        
         try { cy.autoungrabify(editingLocked); } catch(e) {}
 
-        // Disable edgehandles drawing while locked
+        
         try {
             if(window.eh && typeof window.eh.disable === 'function' && typeof window.eh.enable === 'function') {
                 if(editingLocked) window.eh.disable();
@@ -194,17 +192,16 @@
             }
         } catch(e) {}
 
-        // Turn off draw modes while locked
+    
         if(editingLocked) {
             try { cancelWireDrag(); } catch(e) {}
             drawMode = false;
             drawSource = null;
             const btn = document.getElementById('drawModeBtn');
-           // if(btn) btn.innerText = `وضع رسم ا لسلوك: OFF`;
             $('#ctxMenu').hide();
         }
 
-        // Disable editing controls in the sidebar
+
         const ids = ['addNodeBtn','drawModeBtn','loadBtn','solveBtn','inputNode','outputNode','curveStrength','curveSpacing','avoidCross'];
         ids.forEach(id => {
             const el = document.getElementById(id);
@@ -274,10 +271,10 @@
         if(isFinite(stored) && stored > 0) _applyResPanelHeight(stored, false);
         else _applyResPanelHeight(Math.round(main.clientHeight * 0.55), false);
 
-        // Fit the diagram to the new canvas size so it stays fully visible with the results panel.
+        
         try { cy.resize(); } catch(e) {}
         try { SFG.camera.focus(50); } catch(e) { try { cy.fit(cy.elements(), 50); } catch(e2) {} }
-        // Some renderers need a second resize after layout settles.
+        
         try {
             requestAnimationFrame(() => {
                 try { cy.resize(); } catch(e2) {}
@@ -321,7 +318,7 @@
             try { cy.resize(); } catch(e) {}
         }
 
-        // Pointer Events (modern browsers)
+        
         handle.addEventListener('pointerdown', (ev) => {
             beginDrag(ev.clientY);
             try { handle.setPointerCapture(ev.pointerId); } catch(e) {}
@@ -337,7 +334,7 @@
         handle.addEventListener('pointerup', (ev) => endDrag(ev.pointerId));
         handle.addEventListener('pointercancel', (ev) => endDrag(ev.pointerId));
 
-        // Mouse fallback (helps in some environments where pointer events are flaky)
+        
         function onMouseMove(ev) { moveDrag(ev.clientY); ev.preventDefault(); ev.stopPropagation(); }
         function onMouseUp(ev) {
             document.removeEventListener('mousemove', onMouseMove, true);
@@ -358,26 +355,24 @@
     document.getElementById('cy')?.addEventListener('mousedown', () => setActiveArea('canvas'), true);
     document.getElementById('resPanel')?.addEventListener('mousedown', () => setActiveArea('results'), true);
 
-    // Active-area follows the pointer, so pan/zoom works where the mouse is.
+   
     cy.container().addEventListener('mouseenter', () => setActiveArea('canvas'), true);
     document.getElementById('resPanel')?.addEventListener('mouseenter', () => setActiveArea('results'), true);
     cy.container().addEventListener('touchstart', () => setActiveArea('canvas'), { passive: true });
     document.getElementById('resPanel')?.addEventListener('touchstart', () => setActiveArea('results'), { passive: true });
 
-    // (Global wheel hijack removed; results panel scrolls normally when hovered.)
-
-    // Safety reset: لو التقويس اليدوي علّق (بيحصل لو mouseup حصل خارج الـ canvas)
+    
     function resetInteractionLock() {
         if(editingLocked) return;
         try { cy.autoungrabify(false); } catch(e) {}
-        // default should remain selectable
+     
         try { cy.autounselectify(false); } catch(e) {}
     }
     window.addEventListener('mouseup', resetInteractionLock, true);
     window.addEventListener('touchend', resetInteractionLock, true);
     window.addEventListener('blur', resetInteractionLock, true);
 
-    // تفعيل السحب للتقويس (Edge Editing) - اختياري
+    
     try {
         if(typeof cy.edgeEditing === 'function') cy.edgeEditing({ undoable: false, bendRemovalSensitivity: 16 });
         else setStatus('ملحوظة: Edge Editing extension مش محمّلة (التقويس الحر ممكن ميشتغلش).');
@@ -385,15 +380,7 @@
         setStatus('ملحوظة: حصل خطأ في Edge Editing (التقويس الحر ممكن ميشتغلش).');
     }
 
-    // تفعيل رسم الأسلاك (edgehandles) - اختياري
-    // try {
-    //     if(typeof cy.edgehandles === 'function') window.eh = cy.edgehandles({ snap: true });
-    //     else setStatus('ملحوظة: edgehandles extension مش محمّلة. استخدم وضع رسم ا لسلوك (زرار).');
-    // } catch(e) {
-    //     setStatus('ملحوظة: حصل خطأ في edgehandles. استخدم وضع رسم ا لسلوك (زرار).');
-    // }
-
-    // إضافة عقد افتراضية
+   
     cy.add([{group:'nodes', data:{id:'n_in', label:'R'}, position:{x:100,y:300}},
             {group:'nodes', data:{id:'n_out', label:'Y'}, position:{x:700,y:300}}]);
 
@@ -408,9 +395,7 @@
         cy.getElementById('n_out').data('label', $('#outputNode').val());
     }
 
-    // (Snap-to-grid removed)
-
-    // إضافة عقدة في نص الشاشة المعروضة (Viewport Center)
+    
     let _spawnIdx = 0;
     function ensureVisible(ele) {
         try {
@@ -440,22 +425,14 @@
         }
     }
 
-    // وضع رسم ا لسلوك (بديل مضمون حتى لو edgehandles مش شغال)
+   
     let drawMode = false;
     let drawSource = null;
     let _lastNodeTap = { id: null, at: 0 };
 
     let wireDrag = { active: false, source: null, cursorNode: null, tempEdge: null };
 
-    // function toggleDrawMode() {
-    //     if(guardEdit()) return;
-    //     drawMode = !drawMode;
-    //     drawSource = null;
-    //     cancelWireDrag();
-    //     cy.$('node').removeClass('highlight');
-    //     const btn = document.getElementById('drawModeBtn');
-    //     if(btn) btn.innerText = `وضع رسم الس لوك: ${drawMode ? 'ON' : 'OFF'}`;
-    // }
+   
 
     function cancelWireDrag() {
         if(!wireDrag.active) return;
@@ -512,14 +489,14 @@
         const isDouble = (_lastNodeTap.id === n.id() && (now - _lastNodeTap.at) < 320);
         _lastNodeTap = { id: n.id(), at: now };
 
-        // أثناء رسم سلك بالـ wire-drag: ضغطة على عقدة = إنهاء التوصيل
+        
         if(wireDrag.active) {
             if(n.id() !== wireDrag.source.id()) createEdge(wireDrag.source, n);
             cancelWireDrag();
             return;
         }
 
-        // 1) Draw mode: tap source then tap target
+        
         if(drawMode) {
             if(!drawSource) {
                 drawSource = n;
@@ -534,7 +511,7 @@
             return;
         }
 
-        // 2) Double click يبدأ سلك "ظاهر" تقدر توصله
+        
         if(isDouble) startWireDragFrom(n);
     });
 
@@ -551,7 +528,7 @@
         if(e.position) wireDrag.cursorNode.position(e.position);
     });
 
-    // دبل كليك على الخلفية لإضافة عقدة (بدون الاعتماد على dbltap)
+    
     let _lastBgTapAt = 0;
     cy.on('tap', function(e){
         if(e.target !== cy) return;
@@ -587,7 +564,7 @@
         const body = document.getElementById('propsBody');
         if(!body) return;
         const sel = cy.$(':selected');
-        // Hide bend handles unless explicitly activated for the selected edge.
+        
         cy.nodes('.bend-handle').removeClass('active-handle');
         if(sel.empty()) {
             _propsEl = null;
@@ -683,7 +660,7 @@
         const ids = edge.data('bendHandleIds');
         if(!Array.isArray(ids) || ids.length === 0) return { ws: [], ds: [] };
 
-        // استخدام الإحداثيات الأصلية (position) بدل الشاشة (renderedPosition)
+        
         const s = edge.source().position();
         const t = edge.target().position();
         const abx = t.x - s.x, aby = t.y - s.y;
@@ -695,7 +672,7 @@
         ids.forEach(id => {
             const h = cy.getElementById(id);
             if(!h || h.empty()) return;
-            const p = h.position(); // استخدام الإحداثيات الأصلية
+            const p = h.position(); 
             const apx = p.x - s.x, apy = p.y - s.y;
             let w = (apx*abx + apy*aby) / ab2;
             w = Math.max(0.05, Math.min(0.95, w));
@@ -734,7 +711,7 @@
         ids.push(handle.id());
         edge.data('bendHandleIds', ids);
 
-        // Ensure only handles for the selected edge are visible
+        
         setActiveHandlesFor(edge);
         updateEdgeFromHandles(edge);
         return handle;
@@ -742,7 +719,7 @@
 
     let _lastEdgeTap = { id: null, at: 0 };
 
-    // كليك واحد: Select + تظهر الخصائص للتعديل — دبل كليك: إضافة نقطة تقويس
+    
     cy.on('tap', 'edge', function(e){
         const edge = e.target;
         const now = Date.now();
@@ -762,7 +739,7 @@
         focusPropsInput();
     });
 
-    // Dragging bend handles updates the curve live
+    
     cy.on('drag', 'node.bend-handle', function(e){
         const h = e.target;
         const edgeId = h.data('parentEdge');
@@ -770,7 +747,6 @@
         if(edge && edge.nonempty()) updateEdgeFromHandles(edge);
     });
 
-    // If endpoints move/zoom changes, recompute curves for manual handles
     cy.on('position dragfree', 'node', function(e){
         const n = e.target;
         if(n.hasClass('bend-handle') || n.hasClass('cursor-node')) return;
@@ -792,7 +768,7 @@
 
     function resetEdgeCurve(edge) {
         if(guardEdit()) return;
-        // remove manual bend handles (our implementation)
+        
         try {
             const ids = edge.data('bendHandleIds');
             if(Array.isArray(ids)) {
@@ -801,7 +777,7 @@
                     if(n && n.nonempty()) n.remove();
                 });
             } else {
-                // fallback: remove by parentEdge reference
+                
                 cy.nodes('.bend-handle').filter(n => n.data('parentEdge') === edge.id()).remove();
             }
             edge.removeData('bendHandleIds');
@@ -821,7 +797,6 @@
         updateSmartCurves();
     }
 
-    // When an edge is deleted, also delete its bend-handle nodes (they are not connected to the edge).
     cy.on('remove', 'edge', function(e){
         const edge = e.target;
         try {
@@ -835,7 +810,7 @@
         } catch(err) {}
 
         try {
-            // Fallback cleanup
+           
             cy.nodes('.bend-handle').filter(n => n.data('parentEdge') === edge.id()).remove();
         } catch(err) {}
     });
@@ -857,7 +832,6 @@
 
         if(el && el.isNode && el.isNode()) {
             if(el.hasClass && el.hasClass('bend-handle')) {
-               // menu.append(`<div class="menu-item" onclick="(function(){ const edge = cy.getElementById(targetEl.data('parentEdge')); targetEl.remove(); if(edge && edge.nonempty()) updateEdgeFromHandles(edge); $('#ctxMenu').hide(); })()">Remove Bend Handle 🗑️</div>`);
                 menu.append(`<div class="menu-item" onclick="(function(){ const edge = cy.getElementById(targetEl.data('parentEdge')); if(edge && edge.nonempty()) resetEdgeCurve(edge); $('#ctxMenu').hide(); })()">Reset Curve ↩️</div>`);
             } else {
                 menu.append(`<div class="menu-item" onclick="(targetEl.select(), renderProps(), focusPropsInput(), $('#ctxMenu').hide())">إعادة تسمية ✏️</div>`);
@@ -868,7 +842,7 @@
         menu.css({display:'block', left: pageX, top: pageY});
     }
 
-    // كليك يمين (قائمة منسدلة)
+    
     cy.on('cxttap', 'node, edge', function(e){
         if(e.originalEvent) {
             e.originalEvent.preventDefault();
@@ -882,7 +856,7 @@
         if($(ev.target).closest('#ctxMenu').length === 0) $('#ctxMenu').hide();
     });
 
-    // Delete / Backspace لحذف المحدد (بدون ما يأثر على الكتابة داخل inputs)
+    
     document.addEventListener('keydown', (ev) => {
         const tag = (ev.target && ev.target.tagName) ? ev.target.tagName.toLowerCase() : '';
         if(tag === 'input' || tag === 'textarea') return;
@@ -890,7 +864,7 @@
         if(ev.key === 'Delete' || ev.key === 'Backspace') {
             const sel = cy.$(':selected');
             if(sel.nonempty()) {
-                // افتح قائمة فيها Delete بدل الحذف المباشر
+                
                 const el = sel[0];
                 let pos = {x: 30, y: 30};
                 let rendered = null;
@@ -921,13 +895,13 @@
         }
     }
 
-    // ترتيب تلقائي Dagre
+    
     function runAutoLayout() {
         try {
             setStatus('تم حذف زر الترتيب الذكي.');
             return;
 
-            // خلي المدخل والمخرج على الأطراف
+            
             const inN = cy.getElementById('n_in');
             const outN = cy.getElementById('n_out');
             const bb = cy.elements().boundingBox();
@@ -942,13 +916,13 @@
         }
     }
 
-    // تقويس تلقائي ذكي لأسلاك رايح/راجع بين نفس العقدتين (يمنع تداخلهم)
+    
     function updateSmartCurves() {
         const base = Number(document.getElementById('curveStrength')?.value ?? 70);
         const step = Number(document.getElementById('curveSpacing')?.value ?? 30);
         const avoidCross = Boolean(document.getElementById('avoidCross')?.checked ?? true);
 
-        // امسح أي bypass قديم
+        
         cy.edges().forEach(e => {
             const hasHandles = Array.isArray(e.data('bendHandleIds')) && e.data('bendHandleIds').length > 0;
             if(e.hasClass('manual-curved') || hasHandles) return;
@@ -957,7 +931,7 @@
             e.removeStyle('control-point-weights');
         });
 
-        // ترتيب LR: نعتبر العقد "متتالية" لو فرق ترتيبهم = 1
+        
         const orderedNodes = cy.nodes().filter(n => !n.hasClass('cursor-node') && !n.hasClass('bend-handle')).sort((a,b) => a.position('x') - b.position('x'));
         const idx = new Map();
         orderedNodes.forEach((n, i) => idx.set(n.id(), i));
@@ -966,14 +940,13 @@
             const si = nodeIndex(edge.source().id());
             const ti = nodeIndex(edge.target().id());
             const gap = Math.abs(ti - si);
-            const dir = (si <= ti) ? 1 : -1; // forward = + (زي الصورة: فوق) / backward = - (تغذية راجعة: تحت)
+            const dir = (si <= ti) ? 1 : -1;
             return { gap, dir };
         }
 
-        const pairs = new Map(); // undirected for opposite directions
-        const directed = new Map(); // directed multi-edges same direction
+        const pairs = new Map(); 
+        const directed = new Map(); 
         cy.edges().forEach(e => {
-            // لو المستخدم عمل تقويس يدوي، سيبه زي ما هو
             if(e.hasClass('manual-curved') || e.hasClass('edgebendediting-hasbendpoints') || e.hasClass('edgecontrolediting-hascontrolpoints')) return;
             const s = e.source().id();
             const t = e.target().id();
@@ -991,7 +964,7 @@
             else if(s === g.b && t === g.a) g.ba.push(e);
         });
 
-        // ---- Auto curve placement: choose up/down to reduce clutter ----
+        
         function segIntersect(a,b,c,d) {
             function orient(p,q,r){ return (q.x-p.x)*(r.y-p.y) - (q.y-p.y)*(r.x-p.x); }
             function onSeg(p,q,r){
@@ -1041,7 +1014,7 @@
 
         const nodesForPenalty = cy.nodes().filter(n => !n.hasClass('cursor-node') && !n.hasClass('bend-handle')).map(n => n.renderedPosition());
 
-        // Build ordered directed groups with metadata
+        
         const groups = [];
         directed.forEach((list, key) => {
             if(list.length === 0) return;
@@ -1053,33 +1026,33 @@
         });
         groups.sort((a,b) => (b.gap - a.gap) || (a.key.localeCompare(b.key)));
 
-        const assigned = []; // { poly, sId, tId }
+        const assigned = []; 
 
         function scoreCandidate(edge, dist) {
             const poly = polyFor(edge, dist);
             let score = 0;
 
-            // intersection penalty
+            
             if(avoidCross) {
                 for(const a of assigned) {
-                    // ignore shared endpoints
+                   
                     const share = (a.sId === edge.source().id() || a.sId === edge.target().id() || a.tId === edge.source().id() || a.tId === edge.target().id());
                     if(share) continue;
                     score += 50 * polyIntersections(poly, a.poly);
                 }
             }
 
-            // node proximity penalty (avoid running through nodes)
+            
             const thresh = 18;
             for(const np of nodesForPenalty) {
-                // don't penalize endpoints too aggressively
+                
                 const d1 = pointSegDist(np, poly[0], poly[1]);
                 const d2 = (poly.length === 2) ? 999 : pointSegDist(np, poly[1], poly[2]);
                 const d = Math.min(d1, d2);
                 if(d < thresh) score += (thresh - d) * 2;
             }
 
-            // prefer smaller magnitude unless it helps
+            
             score += Math.abs(dist) * 0.02;
             return { score, poly };
         }
@@ -1096,7 +1069,7 @@
             edge.style('control-point-distances', dist);
         }
 
-        // Assign distances group-by-group
+       
         for(const g of groups) {
             const list = g.list;
             const n = list.length;
@@ -1104,23 +1077,23 @@
             const { gap } = gapAndDir(sample);
             const baseMag = (gap > 1 && base > 0) ? (base * (gap - 1)) : 0;
 
-            // group spread offsets
+           
             const spreads = [];
             for(let i=0; i<n; i++) spreads.push((i - (n-1)/2) * step);
 
-            // choose best sign (+ or -) for long edges; consecutive edges default to 0 + spread
+            
             const signCandidates = (baseMag > 0) ? [1, -1] : [0];
             let bestSign = signCandidates[0];
             let bestScore = Infinity;
 
             for(const sgn of signCandidates) {
                 let total = 0;
-                // score a representative by averaging all edges in group with their spreads
+                
                 for(let i=0; i<n; i++) {
                     const dist = (sgn === 0 ? 0 : sgn * baseMag) + spreads[i];
                     total += scoreCandidate(list[i], dist).score;
                 }
-                // tiny tie-break to avoid same side everywhere
+                
                 total += (sgn === 1 ? 0.01 : 0.02);
                 if(total < bestScore) { bestScore = total; bestSign = sgn; }
             }
@@ -1132,7 +1105,7 @@
             }
         }
 
-        // Opposite directions: if both exist, ensure separation even لو consecutive (prettier)
+        
         pairs.forEach(g => {
             if(g.ab.length === 0 || g.ba.length === 0) return;
             const leftIdx = nodeIndex(g.a);
@@ -1156,14 +1129,12 @@
     }
 
     function syncMiniCurves() {
-        return; // Mini visualizer removed.
+        return; 
         if(!window.mini) return;
         const g = window.mini;
         const props = ['curve-style','control-point-distances','control-point-weights','segment-distances','segment-weights'];
         const mainZoom = (cy && cy.zoom) ? (cy.zoom() || 1) : 1;
         const miniZoom = (g && g.zoom) ? (g.zoom() || 1) : 1;
-        // Distances behave like model-units in Cytoscape styling; adjust for differing zoom to preserve the same visual curvature.
-        const ratio = (mainZoom || 1) / (miniZoom || 1);
 
         function _scaleMaybe(prop, v) {
             if(prop !== 'control-point-distances' && prop !== 'segment-distances') return v;
@@ -1198,7 +1169,7 @@
 
     cy.on('add remove', 'edge', () => updateSmartCurves());
 
-    // ---- Validation (before solve) ----
+    
     function normalizeGainExpr(expr) {
         return String(expr ?? '1').trim().replace(/\^/g, '**') || '1';
     }
@@ -1242,7 +1213,7 @@
 
     async function validateDiagramPayload(payload) {
         try {
-            // التعديل تم هنا: كتبنا /validate بدل الرابط الطويل
+            
             const res = await fetch('/validate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
             return await res.json();
         } catch(e) {
@@ -1250,7 +1221,7 @@
         }
     }
 
-    // حل ماسون المفصل
+   
     async function solveMaster() {
         clearValidationMarks();
         let payload = {
@@ -1259,7 +1230,7 @@
             connections: cy.edges()
                 .filter(e => !e.hasClass('temp-wire'))
                 .map(e => ({
-                    id: e.id(), // 🔥 إرسال الـ ID السري
+                    id: e.id(), 
                     from_node: e.source().data('label'), 
                     to_node: e.target().data('label'), 
                     gain: normalizeGainExpr(e.data('gain')||'1')
@@ -1276,7 +1247,7 @@
         $('#resContent').html("⌛ جاري استخراج المسارات والحلقات...");
 
         try {
-            // التعديل تم هنا: كتبنا /solve بدل الرابط الطويل
+            
             let res = await fetch('/solve', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
             let json = await res.json();
             
@@ -1339,9 +1310,7 @@
         } catch(e) { $('#resContent').html(`<h3 style="color:red;">❌ خطأ: ${e.message}</h3>`); }
     }
 
-    // ==========================================
-    // 🔥 Highlight Functions (محصنة ضد الأخطاء)
-    // ==========================================
+    
     let _pinActive = false;
     function pinNodes(nodesStr, edgeIdsStr, isLoop) { _pinActive = true; high(nodesStr, edgeIdsStr, isLoop); }
     function pinCombo(enc, edgeIdsStr) { _pinActive = true; highCombo(enc, edgeIdsStr); }
@@ -1357,18 +1326,18 @@
         _graphs().forEach(({g, dim}) => {
             if(dim) g.elements().addClass('dim');
             
-            // 1. تلوين العقد
+            
             nodesArray.forEach(l => { _nodeByLabelIn(g, l).removeClass('dim').addClass('highlight'); });
             
-            // 2. تلوين الأسلاك
+         
             if (edgesArray.length > 0) {
-                // الطريقة الدقيقة بالـ ID (لو البايثون محدث وشغال)
+               
                 edgesArray.forEach(eid => {
                     const edge = g.getElementById(eid);
                     if(edge && edge.nonempty()) edge.removeClass('dim').addClass('highlight');
                 });
             } else {
-                // الطريقة البديلة المضمونة لتقفيل اللوب
+               
                 for(let i=0; i < nodesArray.length - 1; i++) {
                     const s = _nodeByLabelIn(g, nodesArray[i]);
                     const t = _nodeByLabelIn(g, nodesArray[i+1]);
@@ -1433,14 +1402,14 @@
         });
     }
 
-    // Tools
+   
     function saveDiagram() { 
-        // 1. استخراج حالة التقويس بالمللي لكل سلك وحفظها في الـ data قبل تصدير الملف
+        
         cy.edges().forEach(e => {
             e.data('saved_curve_style', e.style('curve-style'));
             e.data('saved_cp_distances', e.style('control-point-distances'));
             e.data('saved_cp_weights', e.style('control-point-weights'));
-            e.data('saved_classes', e.classes()); // حفظ الكلاسات عشان نعرف السلك اللي اتقوس يدوياً
+            e.data('saved_classes', e.classes()); 
         });
 
         const now = new Date();
@@ -1467,17 +1436,17 @@
                 let data = JSON.parse(f.target.result);
                 cy.json(data); 
                 
-                // 2. استرجاع حالة التقويس بالمللي لكل سلك وتطبيقها فوراً
+                
                 cy.edges().forEach(e => {
                     let cs = e.data('saved_curve_style');
                     let cpd = e.data('saved_cp_distances');
                     let cpw = e.data('saved_cp_weights');
                     let cls = e.data('saved_classes');
                     
-                    // إرجاع الكلاسات (عشان التقويس التلقائي يتجاهل السلوك اللي انت مقوسها بإيدك)
+                   
                     if (cls) e.classes(cls); 
                     
-                    // تطبيق مسافات وأوزان التقويس
+                   
                     if (cs === 'unbundled-bezier' || cs === 'segments') {
                         e.style({
                             'curve-style': cs,
@@ -1487,7 +1456,7 @@
                     }
                 });
 
-                // استرجاع أسماء المدخل والمخرج
+                
                 $('#inputNode').val(cy.getElementById('n_in').data('label') || 'R');
                 $('#outputNode').val(cy.getElementById('n_out').data('label') || 'Y');
                 
@@ -1496,7 +1465,7 @@
                 updateSmartCurves();
                 setTimeout(() => {
                     updateSmartCurves();
-                    SFG.camera.focus(); // تظبيط الكاميرا على الرسمة
+                    SFG.camera.focus(); 
                 }, 50);
                 
                 setStatus('✅ تم تحميل المخطط بجميع تفاصيله وتقويساته بنجاح!');
@@ -1523,10 +1492,10 @@
     function clearFullCanvas() {
         if(guardEdit()) return;
         if(confirm("هل أنت متأكد من مسح المخطط بالكامل؟ لا يمكن التراجع عن هذه الخطوة.")) {
-            // مسح كل شيء
+            
             cy.elements().remove();
             
-            // إعادة إضافة المدخل والمخرج الافتراضيين
+           
             const inLabel = $('#inputNode').val() || 'R';
             const outLabel = $('#outputNode').val() || 'Y';
             cy.add([
@@ -1541,11 +1510,11 @@
         }
     }
 
-    // عند رسم سلك جديد: اطلب Gain + شغّل التقويس الذكي
+    
     cy.on('ehcomplete', function (event, sourceNode, targetNode, addedEdges) {
         (addedEdges || []).forEach(edge => {
             if(!edge.data('gain')) edge.data('gain', '1');
-            // المستخدم يحدد الـ Gain بعد التوصيل (click/right-click على السلك)
+      
         });
         updateSmartCurves();
     });
