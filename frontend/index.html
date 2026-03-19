@@ -1,0 +1,1550 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>Control System Master Solver</title>
+    <!-- Local vendor copies (no CDN dependency for core UI) -->
+    <script src="./vendor/cytoscape.min.js"></script>
+    <script src="./vendor/lodash.min.js"></script>
+    <script src="./vendor/cytoscape-edgehandles.min.js"></script>
+    <script src="./vendor/jquery-3.6.0.min.js"></script>
+    <script src="./vendor/konva.min.js"></script>
+    <script src="./vendor/cytoscape-edge-editing.js"></script>
+    <script>
+        // Improve readability for long formulas inside the results panel.
+        window.MathJax = {
+            chtml: { linebreaks: { automatic: true, width: "container" } },
+        };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; background: #f0f2f5; overflow: hidden; }
+        .sidebar { width: 330px; background: #1e272e; color: white; padding: 20px; display: flex; flex-direction: column; gap: 12px; z-index: 10; box-shadow: 2px 0 15px rgba(0,0,0,0.4); overflow-y: auto;}
+        .sidebar h2 { color: #3498db; text-align: center; margin-top: 0; }
+        .btn { padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; font-size: 14px; text-align: center;}
+        .btn-add { background: #3498db; color: white; }
+        .btn-solve { background: #e74c3c; color: white; font-size: 18px; margin-top: 10px; padding: 15px;}
+        .btn-tool { background: #485460; color: white; font-size: 12px; }
+        .io-card { background: #2f3640; padding: 15px; border-radius: 8px; margin-bottom: 5px; }
+        input { width: 90%; padding: 10px; border-radius: 4px; border: none; margin-top: 5px; text-align: center; font-weight: bold; }
+        
+        .main { flex-grow: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+        #cy { flex: 1 1 auto; min-height: 0; background: #fff; position: relative; outline: none; overflow: hidden; }
+         
+        /* Result Panel */
+        .result-panel { flex: 0 0 auto; height: 55%; min-height: 240px; max-height: 85vh; background: white; border-top: 4px solid #e74c3c; display: none; z-index: 20; box-shadow: 0 -10px 30px rgba(0,0,0,0.2); position: relative; }
+        #resResizeHandle { height: 10px; cursor: row-resize; background: linear-gradient(to bottom, rgba(231,76,60,0.25), rgba(231,76,60,0)); }
+        .res-container { height: 100%; display: flex; flex-direction: column; }
+        .res-text { flex: 1 1 auto; min-height: 0; box-sizing: border-box; padding: 70px 25px 40px; overflow-y: auto; overflow-x: auto; direction: ltr; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
+        .res-text mjx-container { max-width: 100% !important; overflow-x: auto; overflow-y: visible; }
+        
+        .hover-item { padding: 10px; margin: 6px 0; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; transition: 0.2s; background: #f9f9f9; }
+        .hover-item:hover { background: #fffde7; border-color: #fbc02d; transform: scale(1.01); }
+        
+        /* Context Menu */
+        .context-menu { display: none; position: fixed; background: white; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); z-index: 1000; width: 160px; border: 1px solid #ccc;}
+        .menu-item { padding: 12px 15px; cursor: pointer; border-bottom: 1px solid #eee; font-size: 13px; font-weight: bold; color: #2f3640; }
+        .menu-item:hover { background: #f1f2f6; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>SFG Master 🦅</h2>
+    
+    <div class="io-card">
+        <label>إدخال النظام (Input Node):</label>
+        <input type="text" id="inputNode" value="R" onchange="syncIO()">
+        <label style="display:block; margin-top:10px;">إخراج النظام (Output Node):</label>
+        <input type="text" id="outputNode" value="Y" onchange="syncIO()">
+    </div>
+
+    <div class="io-card" id="statusBox" style="display:none; border:1px solid rgba(231,76,60,0.5); background:#3a1f1f;">
+        <div style="font-weight:bold; color:#ffb4b4;">تنبيه:</div>
+        <div id="statusText" style="font-size:12px; line-height:1.5;"></div>
+    </div>
+    
+    <button class="btn btn-add" id="addNodeBtn" onclick="addNewNodeManual()">إضافة عقدة جديدة ➕</button>
+    <button class="btn btn-tool" onclick="SFG.camera.focus()">رجوع للرسم 🎯</button>
+    <button class="btn btn-tool" style="background:#c0392b; color:white;" onclick="clearFullCanvas()">مسح المخطط بالكامل 🗑️</button>
+
+    <details class="io-card" style="cursor: pointer; padding: 12px; background: #2f3640;">
+        <summary style="font-weight: bold; color: #3498db; outline: none;">إعدادات الرسم المتقدمة ⚙️</summary>
+        <div style="margin-top: 15px; cursor: default;">
+            <label style="display:block; margin-bottom:6px; font-size:12px;">قوة التقويس التلقائي (Auto Curve):</label>
+            <input type="range" id="curveStrength" min="0" max="140" value="70" oninput="updateSmartCurves()" style="width:95%;">
+            <label style="display:block; margin:10px 0 6px; font-size:12px;">تباعد الأسلاك المتعددة (Spacing):</label>
+            <input type="range" id="curveSpacing" min="10" max="80" value="30" oninput="updateSmartCurves()" style="width:95%;">
+            <label style="display:block; margin-top:10px; font-size:12px; opacity:0.9;">
+                <input type="checkbox" id="avoidCross" checked onchange="updateSmartCurves()"> تجنّب تقاطع الأسلاك تلقائيًا
+            </label>
+        </div>
+    </details>
+
+    <div class="io-card" id="propsCard">
+        <div style="font-weight:bold; margin-bottom:8px;">خصائص العنصر المحدد</div>
+        <div id="propsBody" style="font-size:12px; line-height:1.6; opacity:0.95;">لا يوجد تحديد</div>
+    </div>
+    
+    <button class="btn btn-tool" id="saveBtn" onclick="saveDiagram()">حفظ المخطط (Save JSON) 💾</button>
+    <button class="btn btn-tool" id="loadBtn" onclick="document.getElementById('fileIn').click()">تحميل مخطط (Load) 📂</button>
+    <input type="file" id="fileIn" style="display:none" accept=".json" onchange="loadDiagram(event)">
+    <button class="btn btn-tool" id="exportBtn" onclick="exportToPNG()">تصدير كصورة PNG 🖼️</button>
+
+    <button class="btn btn-solve" id="solveBtn" onclick="solveMaster()">حل المخطط الآن 🚀</button>
+</div>
+
+<div class="main" id="main">
+<div id="cy" tabindex="0"></div>
+
+<div class="result-panel" id="resPanel">
+    <div id="resResizeHandle" title="اسحب لتغيير حجم نافذة الحل"></div>
+    <button style="position:absolute; right:20px; top:10px; z-index:30; background:#e74c3c; color:white; border:none; padding:8px 15px; border-radius:4px; cursor:pointer;" onclick="closeResults()">إغلاق X</button>
+    <div id="resHint" style="position:absolute; left:20px; top:12px; z-index:30; font-size:12px; color:#7f8c8d; font-weight:bold; background:rgba(255,255,255,0.9); padding:6px 10px; border-radius:6px;">
+        تلميح: مرّر الماوس على عناصر الحل لتحديدها على الرسم. (التعديل مقفول أثناء عرض الحل)
+    </div>
+    <div class="res-container">
+        <div class="res-text" id="resContent"></div>
+    </div>
+</div>
+</div>
+
+<div id="ctxMenu" class="context-menu"></div>
+
+    <script>
+        const styleDef = [
+            { selector: 'node', style: { 'width':35,'height':35,'background-color':'#fff','border-width':2,'border-color':'#1e272e','label':'data(label)','text-valign':'center','font-size':14,'font-weight':'bold'} },
+            { selector: 'edge', style: { 'width':4,'line-color':'#1e272e','target-arrow-shape':'triangle','target-arrow-color':'#1e272e','curve-style':'bezier','control-point-step-size':60, 'label':'data(gain)','font-size':15,'text-background-color':'#fff','text-background-opacity':1,'color':'#e74c3c','font-weight':'bold','overlay-padding':10,'overlay-opacity':0,'text-events':'yes' } },
+            { selector: 'node:selected', style: { 'border-color':'#3498db','border-width':4 } },
+            { selector: 'node.invalid', style: { 'border-color':'#e74c3c','border-width':5 } },
+            { selector: 'edge.invalid', style: { 'line-color':'#e74c3c','target-arrow-color':'#e74c3c','width':6 } },
+            { selector: 'node.warn', style: { 'border-color':'#f39c12','border-width':4 } },
+            { selector: 'edge.warn', style: { 'line-color':'#f39c12','target-arrow-color':'#f39c12','width':5 } },
+            { selector: 'node.highlight', style: { 'background-color':'#fffde7','border-color':'#fbc02d','border-width':5,'z-index':9999 } },
+            { selector: 'node.cursor-node', style: { 'width':0, 'height':0, 'border-width':0, 'opacity':0, 'events':'no' } },
+{ selector: '.eh-ghost-node, .eh-handle', style: { 'width':0, 'height':0, 'border-width':0, 'opacity':0, 'events':'no' } },
+            // Bend handles are hidden unless their parent edge is selected (prevents blocking clicks).
+            { selector: 'node.bend-handle', style: { 'width':14,'height':14,'background-color':'#fbc02d','border-width':2,'border-color':'#c0392b','label':'','z-index':100000,'display':'none','overlay-padding':10,'overlay-opacity':0 } },
+            { selector: 'node.bend-handle.active-handle', style: { 'display':'element' } },
+            { selector: 'edge.temp-wire', style: { 'line-style':'dashed','line-color':'#95a5a6','target-arrow-shape':'none','width':2,'label':'','opacity':0.9 } },
+            { selector: '.highlight', style: { 'line-color':'#fbc02d','target-arrow-color':'#fbc02d','width':6,'z-index':9999 } },
+            { selector: '.dim', style: { 'opacity':0.15 } }
+        ];
+
+    function setStatus(msg) {
+        const box = document.getElementById('statusBox');
+        const text = document.getElementById('statusText');
+        if(!box || !text) return;
+        box.style.display = 'block';
+        text.innerText = msg;
+    }
+
+    if(typeof cytoscape !== 'function') {
+        setStatus('Cytoscape.js غير محمّل. تأكد إن ملفات ./vendor موجودة جنب index.html.');
+        throw new Error('Cytoscape missing');
+    }
+
+    let cy = cytoscape({ container: document.getElementById('cy'), style: styleDef });
+    window.cy = cy; // للاختبار و الـ debug
+    window.SFG = {
+        cy,
+        camera: {
+            focus: (padding=50) => cy.fit(cy.elements().filter(el => !el.hasClass('temp-wire') && !el.hasClass('cursor-node') && !el.hasClass('bend-handle')), padding),
+            centerOn: (eles, padding=60) => cy.fit(eles, padding),
+        },
+    };
+
+    // امنع الـ browser context menu عشان كليك يمين يبقى للبرنامج
+    // Prevent browser context menu without breaking Cytoscape's right-click handling.
+    cy.container().addEventListener('contextmenu', (ev) => ev.preventDefault(), false);
+    document.addEventListener('contextmenu', (ev) => {
+        const t = ev.target;
+        if(t && t.closest && (t.closest('#cy') || t.closest('#ctxMenu') || t.closest('#resPanel') || t.closest('.sidebar'))) {
+            ev.preventDefault();
+        }
+    }, false);
+
+    // Focus model: لما تختار منطقة الحل، السكرول يبقى للحل حتى لو المؤشر فوق الرسم
+    let activeArea = 'canvas'; // 'canvas' | 'results'
+    let editingLocked = false; // locked while results are visible (keeps solution consistent with the diagram)
+
+    function setEditingLocked(locked) {
+        editingLocked = Boolean(locked);
+        try { document.body.classList.toggle('results-open', editingLocked); } catch(e) {}
+
+        // Disable moving nodes while viewing results (prevents accidental diagram edits).
+        try { cy.autoungrabify(editingLocked); } catch(e) {}
+
+        // Disable edgehandles drawing while locked
+        try {
+            if(window.eh && typeof window.eh.disable === 'function' && typeof window.eh.enable === 'function') {
+                if(editingLocked) window.eh.disable();
+                else window.eh.enable();
+            }
+        } catch(e) {}
+
+        // Turn off draw modes while locked
+        if(editingLocked) {
+            try { cancelWireDrag(); } catch(e) {}
+            drawMode = false;
+            drawSource = null;
+            const btn = document.getElementById('drawModeBtn');
+           // if(btn) btn.innerText = `وضع رسم ا لسلوك: OFF`;
+            $('#ctxMenu').hide();
+        }
+
+        // Disable editing controls in the sidebar
+        const ids = ['addNodeBtn','drawModeBtn','loadBtn','solveBtn','inputNode','outputNode','curveStrength','curveSpacing','avoidCross'];
+        ids.forEach(id => {
+            const el = document.getElementById(id);
+            if(!el) return;
+            el.disabled = editingLocked;
+        });
+    }
+
+    function guardEdit() {
+        if(!editingLocked) return false;
+        setStatus('المخطط مقفول أثناء عرض الحل. اقفل نافذة الحل للتعديل.');
+        return true;
+    }
+
+    function _setCanvasPanZoomEnabled(enabled) {
+        try { cy.userPanningEnabled(Boolean(enabled)); } catch(e) {}
+        try { cy.userZoomingEnabled(Boolean(enabled)); } catch(e) {}
+    }
+
+    function _updateCanvasPanZoom() {
+        const rp = document.getElementById('resPanel');
+        const visible = rp && getComputedStyle(rp).display !== 'none';
+        if(!visible) { _setCanvasPanZoomEnabled(true); return; }
+        _setCanvasPanZoomEnabled(activeArea !== 'results');
+    }
+
+    function setActiveArea(area) {
+        activeArea = area;
+        _updateCanvasPanZoom();
+    }
+
+    function closeResults() {
+        const rp = document.getElementById('resPanel');
+        if(rp) rp.style.display = 'none';
+        setEditingLocked(false);
+        try { cy.resize(); } catch(e) {}
+        setActiveArea('canvas');
+        unpin();
+    }
+
+    function _applyResPanelHeight(px, store=false) {
+        const rp = document.getElementById('resPanel');
+        const main = document.getElementById('main');
+        if(!rp || !main) return;
+        const minH = 200;
+        const maxH = Math.max(minH, main.clientHeight - 120);
+        let h = Number(px);
+        if(!isFinite(h)) return;
+        h = Math.max(minH, Math.min(maxH, h));
+        rp.style.height = `${Math.round(h)}px`;
+        if(store) {
+            try { localStorage.setItem('resPanelHeightPx', String(Math.round(h))); } catch(e) {}
+        }
+        try { cy.resize(); } catch(e) {}
+        try {
+            requestAnimationFrame(() => { try { cy.resize(); } catch(e2) {} });
+        } catch(e) {}
+    }
+
+    function openResults() {
+        const rp = document.getElementById('resPanel');
+        const main = document.getElementById('main');
+        if(!rp || !main) return;
+        rp.style.display = 'block';
+        let stored = NaN;
+        try { stored = Number(localStorage.getItem('resPanelHeightPx')); } catch(e) {}
+        if(isFinite(stored) && stored > 0) _applyResPanelHeight(stored, false);
+        else _applyResPanelHeight(Math.round(main.clientHeight * 0.55), false);
+
+        // Fit the diagram to the new canvas size so it stays fully visible with the results panel.
+        try { cy.resize(); } catch(e) {}
+        try { SFG.camera.focus(50); } catch(e) { try { cy.fit(cy.elements(), 50); } catch(e2) {} }
+        // Some renderers need a second resize after layout settles.
+        try {
+            requestAnimationFrame(() => {
+                try { cy.resize(); } catch(e2) {}
+                try { SFG.camera.focus(50); } catch(e3) {}
+            });
+        } catch(e) {}
+        _updateCanvasPanZoom();
+    }
+
+    function initResultsResizer() {
+        const rp = document.getElementById('resPanel');
+        const handle = document.getElementById('resResizeHandle');
+        if(!rp || !handle) return;
+
+        let dragging = false;
+        let startY = 0;
+        let startH = 0;
+
+        function beginDrag(clientY) {
+            if(getComputedStyle(rp).display === 'none') return;
+            dragging = true;
+            startY = clientY;
+            startH = rp.getBoundingClientRect().height;
+            document.body.style.cursor = 'row-resize';
+        }
+
+        function moveDrag(clientY) {
+            if(!dragging) return;
+            const dy = clientY - startY;
+            _applyResPanelHeight(startH - dy, false);
+        }
+
+        function endDrag(pointerId=null) {
+            if(!dragging) return;
+            dragging = false;
+            document.body.style.cursor = '';
+            try { _applyResPanelHeight(rp.getBoundingClientRect().height, true); } catch(e) {}
+            if(pointerId != null) {
+                try { handle.releasePointerCapture(pointerId); } catch(e) {}
+            }
+            try { cy.resize(); } catch(e) {}
+        }
+
+        // Pointer Events (modern browsers)
+        handle.addEventListener('pointerdown', (ev) => {
+            beginDrag(ev.clientY);
+            try { handle.setPointerCapture(ev.pointerId); } catch(e) {}
+            ev.preventDefault();
+            ev.stopPropagation();
+        });
+        handle.addEventListener('pointermove', (ev) => {
+            if(!dragging) return;
+            moveDrag(ev.clientY);
+            ev.preventDefault();
+            ev.stopPropagation();
+        });
+        handle.addEventListener('pointerup', (ev) => endDrag(ev.pointerId));
+        handle.addEventListener('pointercancel', (ev) => endDrag(ev.pointerId));
+
+        // Mouse fallback (helps in some environments where pointer events are flaky)
+        function onMouseMove(ev) { moveDrag(ev.clientY); ev.preventDefault(); ev.stopPropagation(); }
+        function onMouseUp(ev) {
+            document.removeEventListener('mousemove', onMouseMove, true);
+            document.removeEventListener('mouseup', onMouseUp, true);
+            endDrag(null);
+            ev.preventDefault();
+            ev.stopPropagation();
+        }
+        handle.addEventListener('mousedown', (ev) => {
+            beginDrag(ev.clientY);
+            document.addEventListener('mousemove', onMouseMove, true);
+            document.addEventListener('mouseup', onMouseUp, true);
+            ev.preventDefault();
+            ev.stopPropagation();
+        });
+    }
+
+    document.getElementById('cy')?.addEventListener('mousedown', () => setActiveArea('canvas'), true);
+    document.getElementById('resPanel')?.addEventListener('mousedown', () => setActiveArea('results'), true);
+
+    // Active-area follows the pointer, so pan/zoom works where the mouse is.
+    cy.container().addEventListener('mouseenter', () => setActiveArea('canvas'), true);
+    document.getElementById('resPanel')?.addEventListener('mouseenter', () => setActiveArea('results'), true);
+    cy.container().addEventListener('touchstart', () => setActiveArea('canvas'), { passive: true });
+    document.getElementById('resPanel')?.addEventListener('touchstart', () => setActiveArea('results'), { passive: true });
+
+    // (Global wheel hijack removed; results panel scrolls normally when hovered.)
+
+    // Safety reset: لو التقويس اليدوي علّق (بيحصل لو mouseup حصل خارج الـ canvas)
+    function resetInteractionLock() {
+        if(editingLocked) return;
+        try { cy.autoungrabify(false); } catch(e) {}
+        // default should remain selectable
+        try { cy.autounselectify(false); } catch(e) {}
+    }
+    window.addEventListener('mouseup', resetInteractionLock, true);
+    window.addEventListener('touchend', resetInteractionLock, true);
+    window.addEventListener('blur', resetInteractionLock, true);
+
+    // تفعيل السحب للتقويس (Edge Editing) - اختياري
+    try {
+        if(typeof cy.edgeEditing === 'function') cy.edgeEditing({ undoable: false, bendRemovalSensitivity: 16 });
+        else setStatus('ملحوظة: Edge Editing extension مش محمّلة (التقويس الحر ممكن ميشتغلش).');
+    } catch(e) {
+        setStatus('ملحوظة: حصل خطأ في Edge Editing (التقويس الحر ممكن ميشتغلش).');
+    }
+
+    // تفعيل رسم الأسلاك (edgehandles) - اختياري
+    // try {
+    //     if(typeof cy.edgehandles === 'function') window.eh = cy.edgehandles({ snap: true });
+    //     else setStatus('ملحوظة: edgehandles extension مش محمّلة. استخدم وضع رسم ا لسلوك (زرار).');
+    // } catch(e) {
+    //     setStatus('ملحوظة: حصل خطأ في edgehandles. استخدم وضع رسم ا لسلوك (زرار).');
+    // }
+
+    // إضافة عقد افتراضية
+    cy.add([{group:'nodes', data:{id:'n_in', label:'R'}, position:{x:100,y:300}},
+            {group:'nodes', data:{id:'n_out', label:'Y'}, position:{x:700,y:300}}]);
+
+    let _idSeq = 0;
+    function makeId(prefix) {
+        _idSeq += 1;
+        return `${prefix}${Date.now()}_${_idSeq}`;
+    }
+
+    function syncIO() {
+        cy.getElementById('n_in').data('label', $('#inputNode').val());
+        cy.getElementById('n_out').data('label', $('#outputNode').val());
+    }
+
+    // (Snap-to-grid removed)
+
+    // إضافة عقدة في نص الشاشة المعروضة (Viewport Center)
+    let _spawnIdx = 0;
+    function ensureVisible(ele) {
+        try {
+            const p = ele.renderedPosition();
+            const w = cy.width();
+            const h = cy.height();
+            const margin = 60;
+            if(p.x < margin || p.y < margin || p.x > (w - margin) || p.y > (h - margin)) {
+                cy.animate({ center: { eles: ele }, duration: 250 });
+            }
+        } catch(e) {}
+    }
+    function addNewNodeManual() {
+        if(guardEdit()) return;
+        let name = prompt("اسم العقدة الجديدة:");
+        if(name) {
+            let pan = cy.pan(); let zoom = cy.zoom();
+            let x = (cy.width()/2 - pan.x)/zoom; let y = (cy.height()/2 - pan.y)/zoom;
+            _spawnIdx += 1;
+            const angle = (_spawnIdx * 0.9);
+            const radius = 35 + (_spawnIdx % 6) * 18;
+            x += Math.cos(angle) * radius;
+            y += Math.sin(angle) * radius;
+            const newNode = cy.add({ group:'nodes', data:{id: makeId('node_'), label:name}, position:{x:x, y:y} });
+            newNode.select();
+            ensureVisible(newNode);
+        }
+    }
+
+    // وضع رسم ا لسلوك (بديل مضمون حتى لو edgehandles مش شغال)
+    let drawMode = false;
+    let drawSource = null;
+    let _lastNodeTap = { id: null, at: 0 };
+
+    let wireDrag = { active: false, source: null, cursorNode: null, tempEdge: null };
+
+    // function toggleDrawMode() {
+    //     if(guardEdit()) return;
+    //     drawMode = !drawMode;
+    //     drawSource = null;
+    //     cancelWireDrag();
+    //     cy.$('node').removeClass('highlight');
+    //     const btn = document.getElementById('drawModeBtn');
+    //     if(btn) btn.innerText = `وضع رسم الس لوك: ${drawMode ? 'ON' : 'OFF'}`;
+    // }
+
+    function cancelWireDrag() {
+        if(!wireDrag.active) return;
+        if(wireDrag.tempEdge) wireDrag.tempEdge.remove();
+        if(wireDrag.cursorNode) wireDrag.cursorNode.remove();
+        wireDrag = { active: false, source: null, cursorNode: null, tempEdge: null };
+        cy.$('node').removeClass('highlight');
+    }
+
+    function createEdge(sourceNode, targetNode) {
+        if(guardEdit()) return null;
+        const edge = cy.add({
+            group:'edges',
+            data:{ id: makeId('e_'), source: sourceNode.id(), target: targetNode.id(), gain: '1' }
+        });
+        updateSmartCurves();
+        clearValidationMarks();
+        return edge;
+    }
+
+    function startWireDragFrom(node) {
+        if(guardEdit()) return;
+        cancelWireDrag();
+        wireDrag.active = true;
+        wireDrag.source = node;
+        cy.$('node').removeClass('highlight');
+        node.addClass('highlight');
+
+        const pos = node.position();
+        wireDrag.cursorNode = cy.add({
+            group: 'nodes',
+            data: { id: makeId('cursor_'), label: '' },
+            position: { x: pos.x, y: pos.y },
+            classes: 'cursor-node',
+            selectable: false,
+            grabbable: false,
+        });
+        wireDrag.cursorNode.lock();
+
+        wireDrag.tempEdge = cy.add({
+            group: 'edges',
+            data: { id: makeId('temp_'), source: node.id(), target: wireDrag.cursorNode.id(), gain: '' },
+            classes: 'temp-wire',
+            selectable: false,
+        });
+
+        setStatus('سلك جديد: حرّك الماوس ثم اضغط على العقدة الهدف للتوصيل. (Esc للإلغاء)');
+    }
+
+    cy.on('tap', 'node', function(e){
+        const n = e.target;
+        if(n.hasClass && (n.hasClass('bend-handle') || n.hasClass('cursor-node'))) return;
+        const now = Date.now();
+        const isDouble = (_lastNodeTap.id === n.id() && (now - _lastNodeTap.at) < 320);
+        _lastNodeTap = { id: n.id(), at: now };
+
+        // أثناء رسم سلك بالـ wire-drag: ضغطة على عقدة = إنهاء التوصيل
+        if(wireDrag.active) {
+            if(n.id() !== wireDrag.source.id()) createEdge(wireDrag.source, n);
+            cancelWireDrag();
+            return;
+        }
+
+        // 1) Draw mode: tap source then tap target
+        if(drawMode) {
+            if(!drawSource) {
+                drawSource = n;
+                cy.$('node').removeClass('highlight');
+                n.addClass('highlight');
+                return;
+            }
+            if(n.id() === drawSource.id()) return;
+            createEdge(drawSource, n);
+            cy.$('node').removeClass('highlight');
+            drawSource = null;
+            return;
+        }
+
+        // 2) Double click يبدأ سلك "ظاهر" تقدر توصله
+        if(isDouble) startWireDragFrom(n);
+    });
+
+    cy.on('tap', function(e){
+        if(drawMode && e.target === cy) {
+            drawSource = null;
+            cy.$('node').removeClass('highlight');
+        }
+        if(wireDrag.active && e.target === cy) cancelWireDrag();
+    });
+
+    cy.on('mousemove', function(e){
+        if(!wireDrag.active || !wireDrag.cursorNode) return;
+        if(e.position) wireDrag.cursorNode.position(e.position);
+    });
+
+    // دبل كليك على الخلفية لإضافة عقدة (بدون الاعتماد على dbltap)
+    let _lastBgTapAt = 0;
+    cy.on('tap', function(e){
+        if(e.target !== cy) return;
+        if(editingLocked) return;
+        const now = Date.now();
+        if(now - _lastBgTapAt < 320) {
+            let n = prompt("اسم العقدة:");
+            if(n) {
+                const newNode = cy.add({group:'nodes', data:{id: makeId('node_'), label:n}, position: e.position});
+                newNode.select();
+                ensureVisible(newNode);
+            }
+            _lastBgTapAt = 0;
+        } else {
+            _lastBgTapAt = now;
+        }
+    });
+
+    function editEdgeGain(edge) {
+        let g = prompt("كسب المسار (Gain):", edge.data('gain') || '1');
+        if(g === null) return;
+        g = (g || '').trim();
+        edge.data('gain', g || '1');
+    }
+
+    let _propsEl = null;
+    function focusPropsInput() {
+        const el = document.getElementById('propsInput');
+        if(el) { el.focus(); try{ el.select(); } catch(e) {} }
+    }
+
+    function renderProps() {
+        const body = document.getElementById('propsBody');
+        if(!body) return;
+        const sel = cy.$(':selected');
+        // Hide bend handles unless explicitly activated for the selected edge.
+        cy.nodes('.bend-handle').removeClass('active-handle');
+        if(sel.empty()) {
+            _propsEl = null;
+            body.innerText = 'لا يوجد تحديد';
+            return;
+        }
+
+        _propsEl = sel[0];
+
+        if(_propsEl.isNode && _propsEl.isNode() && _propsEl.hasClass && _propsEl.hasClass('bend-handle')) {
+            const edge = cy.getElementById(_propsEl.data('parentEdge'));
+            if(edge && edge.nonempty()) setActiveHandlesFor(edge);
+            body.innerHTML = `
+                <div style="margin-bottom:6px;">Type: <b>Bend Handle</b></div>
+                <div style="color:#7f8c8d; font-size:13px; margin-bottom:10px;">Drag the handle to bend the edge.</div>
+                <button class="btn btn-tool" style="width:95%; margin-bottom:6px;" onclick="(function(){ const edge = cy.getElementById(_propsEl.data('parentEdge')); _propsEl.remove(); if(edge && edge.nonempty()) updateEdgeFromHandles(edge); renderProps(); })()">Remove Handle 🗑️</button>
+                <button class="btn btn-tool" style="width:95%;" onclick="(function(){ const edge = cy.getElementById(_propsEl.data('parentEdge')); if(edge && edge.nonempty()) resetEdgeCurve(edge); renderProps(); })()">Reset Curve ↩️</button>
+            `;
+            return;
+        }
+
+        if(_propsEl.isEdge && _propsEl.isEdge()) setActiveHandlesFor(_propsEl);
+        if(_propsEl.isNode && _propsEl.isNode()) {
+            const val = _propsEl.data('label') || '';
+            body.innerHTML = `
+                <div style="margin-bottom:6px;">Type: <b>Node</b></div>
+                <div style="margin-bottom:8px;">
+                    <div style="margin-bottom:4px;">Name</div>
+                    <input id="propsInput" value="${String(val).replace(/\"/g,'&quot;')}" onkeydown="if(event.key==='Enter'){applyProps();}" />
+                </div>
+                <button class="btn btn-tool" style="width:95%; margin-bottom:6px;" onclick="applyProps()">تطبيق</button>
+                <button class="btn btn-tool" style="width:95%;" onclick="deleteTargetFromProps()">Delete 🗑️</button>
+            `;
+            return;
+        }
+
+        if(_propsEl.isEdge && _propsEl.isEdge()) {
+            const gain = _propsEl.data('gain') || '1';
+            body.innerHTML = `
+                <div style="margin-bottom:6px;">Type: <b>Edge</b></div>
+                <div style="margin-bottom:8px;">
+                    <div style="margin-bottom:4px;">Gain</div>
+                    <input id="propsInput" value="${String(gain).replace(/\"/g,'&quot;')}" onkeydown="if(event.key==='Enter'){applyProps();}" />
+                    <div style="margin-top:6px; font-size:11px; color:#7f8c8d;">Examples: <code>G1*G2</code>, <code>G1+G2</code>, <code>(s+1)/(s+2)</code>, <code>G1^2</code></div>
+                </div>
+                <button class="btn btn-tool" style="width:95%; margin-bottom:6px;" onclick="applyProps()">تطبيق</button>
+                <button class="btn btn-tool" style="width:95%; margin-bottom:6px;" onclick="resetEdgeCurve(_propsEl); renderProps();">Reset Curve ↩️</button>
+                <button class="btn btn-tool" style="width:95%;" onclick="deleteTargetFromProps()">Delete 🗑️</button>
+            `;
+        }
+    }
+
+    function applyProps() {
+        if(guardEdit()) return;
+        if(!_propsEl) return;
+        const v = (document.getElementById('propsInput')?.value ?? '').trim();
+        if(_propsEl.isNode && _propsEl.isNode()) {
+            if(v) {
+                _propsEl.data('label', v);
+                if(_propsEl.id()==='n_in') $('#inputNode').val(v);
+                if(_propsEl.id()==='n_out') $('#outputNode').val(v);
+            }
+        } else if(_propsEl.isEdge && _propsEl.isEdge()) {
+            _propsEl.data('gain', v || '1');
+        }
+        clearValidationMarks();
+        renderProps();
+    }
+
+    function deleteTargetFromProps() {
+        if(guardEdit()) return;
+        const sel = cy.$(':selected');
+        if(sel.nonempty()) {
+            sel.remove();
+            updateSmartCurves();
+            renderProps();
+        }
+    }
+
+    function setActiveHandlesFor(edge) {
+        cy.nodes('.bend-handle').removeClass('active-handle');
+        if(!edge || !edge.nonempty || edge.empty()) return;
+        const ids = edge.data('bendHandleIds');
+        if(Array.isArray(ids)) {
+            ids.forEach(id => {
+                const n = cy.getElementById(id);
+                if(n && n.nonempty()) n.addClass('active-handle');
+            });
+        }
+    }
+
+    function _weightsDistsFromHandles(edge) {
+        const ids = edge.data('bendHandleIds');
+        if(!Array.isArray(ids) || ids.length === 0) return { ws: [], ds: [] };
+
+        // استخدام الإحداثيات الأصلية (position) بدل الشاشة (renderedPosition)
+        const s = edge.source().position();
+        const t = edge.target().position();
+        const abx = t.x - s.x, aby = t.y - s.y;
+        const ab2 = abx*abx + aby*aby;
+        if(ab2 < 1) return { ws: [], ds: [] };
+        const abLen = Math.sqrt(ab2) || 1;
+
+        const pts = [];
+        ids.forEach(id => {
+            const h = cy.getElementById(id);
+            if(!h || h.empty()) return;
+            const p = h.position(); // استخدام الإحداثيات الأصلية
+            const apx = p.x - s.x, apy = p.y - s.y;
+            let w = (apx*abx + apy*aby) / ab2;
+            w = Math.max(0.05, Math.min(0.95, w));
+            const cross = apx*aby - apy*abx;
+            let d = cross / abLen; 
+            if(Math.abs(d) < 8) d = d >= 0 ? 18 : -18;
+            pts.push({ w, d });
+        });
+
+        pts.sort((a,b) => a.w - b.w);
+        return { ws: pts.map(p => p.w), ds: pts.map(p => p.d) };
+    }
+
+    function updateEdgeFromHandles(edge) {
+        if(!edge || edge.empty()) return;
+        const { ws, ds } = _weightsDistsFromHandles(edge);
+        if(ws.length === 0) return;
+        edge.addClass('manual-curved');
+        edge.style('curve-style', 'unbundled-bezier');
+        edge.style('control-point-weights', ws.length === 1 ? ws[0] : ws);
+        edge.style('control-point-distances', ds.length === 1 ? ds[0] : ds);
+    }
+
+    function addBendHandle(edge, modelPos) {
+        if(guardEdit()) return;
+        if(!edge || edge.empty() || !modelPos) return;
+        const handle = cy.add({
+            group: 'nodes',
+            data: { id: makeId('bend_'), parentEdge: edge.id() },
+            position: { x: modelPos.x, y: modelPos.y },
+            classes: 'bend-handle active-handle',
+        });
+
+        let ids = edge.data('bendHandleIds');
+        if(!Array.isArray(ids)) ids = [];
+        ids.push(handle.id());
+        edge.data('bendHandleIds', ids);
+
+        // Ensure only handles for the selected edge are visible
+        setActiveHandlesFor(edge);
+        updateEdgeFromHandles(edge);
+        return handle;
+    }
+
+    let _lastEdgeTap = { id: null, at: 0 };
+
+    // كليك واحد: Select + تظهر الخصائص للتعديل — دبل كليك: إضافة نقطة تقويس
+    cy.on('tap', 'edge', function(e){
+        const edge = e.target;
+        const now = Date.now();
+        const isDouble = (_lastEdgeTap.id === edge.id() && (now - _lastEdgeTap.at) < 320);
+        _lastEdgeTap = { id: edge.id(), at: now };
+
+        if(isDouble) {
+            edge.select();
+            addBendHandle(edge, e.position);
+            renderProps();
+            focusPropsInput();
+            return;
+        }
+
+        edge.select();
+        renderProps();
+        focusPropsInput();
+    });
+
+    // Dragging bend handles updates the curve live
+    cy.on('drag', 'node.bend-handle', function(e){
+        const h = e.target;
+        const edgeId = h.data('parentEdge');
+        const edge = cy.getElementById(edgeId);
+        if(edge && edge.nonempty()) updateEdgeFromHandles(edge);
+    });
+
+    // If endpoints move/zoom changes, recompute curves for manual handles
+    cy.on('position dragfree', 'node', function(e){
+        const n = e.target;
+        if(n.hasClass('bend-handle') || n.hasClass('cursor-node')) return;
+        const edges = n.connectedEdges().filter(ed => Array.isArray(ed.data('bendHandleIds')) && ed.data('bendHandleIds').length > 0);
+        edges.forEach(ed => updateEdgeFromHandles(ed));
+    });
+    
+
+    let _ctxRenderedPos = null;
+    let _ctxModelPos = null;
+
+    function deleteTarget() {
+        if(guardEdit()) return;
+        if(!window.targetEl) return;
+        window.targetEl.remove();
+        $('#ctxMenu').hide();
+        updateSmartCurves();
+    }
+
+    function resetEdgeCurve(edge) {
+        if(guardEdit()) return;
+        // remove manual bend handles (our implementation)
+        try {
+            const ids = edge.data('bendHandleIds');
+            if(Array.isArray(ids)) {
+                ids.forEach(id => {
+                    const n = cy.getElementById(id);
+                    if(n && n.nonempty()) n.remove();
+                });
+            } else {
+                // fallback: remove by parentEdge reference
+                cy.nodes('.bend-handle').filter(n => n.data('parentEdge') === edge.id()).remove();
+            }
+            edge.removeData('bendHandleIds');
+        } catch(e) {}
+
+        edge.removeClass('edgebendediting-hasbendpoints edgebendediting-hasmultiplebendpoints edgecontrolediting-hascontrolpoints edgecontrolediting-hasmultiplecontrolpoints');
+        edge.removeData('cyedgebendeditingWeights');
+        edge.removeData('cyedgebendeditingDistances');
+        edge.removeData('cyedgecontroleditingWeights');
+        edge.removeData('cyedgecontroleditingDistances');
+        edge.removeClass('manual-curved');
+        edge.removeStyle('curve-style');
+        edge.removeStyle('control-point-distances');
+        edge.removeStyle('control-point-weights');
+        edge.removeStyle('segment-distances');
+        edge.removeStyle('segment-weights');
+        updateSmartCurves();
+    }
+
+    // When an edge is deleted, also delete its bend-handle nodes (they are not connected to the edge).
+    cy.on('remove', 'edge', function(e){
+        const edge = e.target;
+        try {
+            const ids = edge.data('bendHandleIds');
+            if(Array.isArray(ids)) {
+                ids.forEach(id => {
+                    const n = cy.getElementById(id);
+                    if(n && n.nonempty()) n.remove();
+                });
+            }
+        } catch(err) {}
+
+        try {
+            // Fallback cleanup
+            cy.nodes('.bend-handle').filter(n => n.data('parentEdge') === edge.id()).remove();
+        } catch(err) {}
+    });
+
+    function openContextMenu(el, pageX, pageY, renderedPos=null, modelPos=null) {
+        if(guardEdit()) return;
+        window.targetEl = el;
+        _ctxRenderedPos = renderedPos;
+        _ctxModelPos = modelPos;
+        let menu = $('#ctxMenu');
+
+        menu.html(`<div class="menu-item" onclick="deleteTarget()">Delete 🗑️</div>`);
+
+        if(el && el.isEdge && el.isEdge()) {
+            menu.append(`<div class="menu-item" onclick="(targetEl.select(), renderProps(), focusPropsInput(), $('#ctxMenu').hide())">تعديل Gain ✅</div>`);
+            menu.append(`<div class="menu-item" onclick="resetEdgeCurve(targetEl)">Reset Curve ↩️</div>`);
+            if(_ctxModelPos) menu.append(`<div class="menu-item" onclick="addBendHandle(targetEl, _ctxModelPos)">Add Bend Handle ➕</div>`);
+        }
+
+        if(el && el.isNode && el.isNode()) {
+            if(el.hasClass && el.hasClass('bend-handle')) {
+               // menu.append(`<div class="menu-item" onclick="(function(){ const edge = cy.getElementById(targetEl.data('parentEdge')); targetEl.remove(); if(edge && edge.nonempty()) updateEdgeFromHandles(edge); $('#ctxMenu').hide(); })()">Remove Bend Handle 🗑️</div>`);
+                menu.append(`<div class="menu-item" onclick="(function(){ const edge = cy.getElementById(targetEl.data('parentEdge')); if(edge && edge.nonempty()) resetEdgeCurve(edge); $('#ctxMenu').hide(); })()">Reset Curve ↩️</div>`);
+            } else {
+                menu.append(`<div class="menu-item" onclick="(targetEl.select(), renderProps(), focusPropsInput(), $('#ctxMenu').hide())">إعادة تسمية ✏️</div>`);
+                menu.append(`<div class="menu-item" onclick="(startWireDragFrom(targetEl), $('#ctxMenu').hide())">Start Wire From Here ➜</div>`);
+            }
+        }
+
+        menu.css({display:'block', left: pageX, top: pageY});
+    }
+
+    // كليك يمين (قائمة منسدلة)
+    cy.on('cxttap', 'node, edge', function(e){
+        if(e.originalEvent) {
+            e.originalEvent.preventDefault();
+            e.originalEvent.stopPropagation();
+        }
+        const pageX = (e.originalEvent && e.originalEvent.pageX != null) ? e.originalEvent.pageX : 10;
+        const pageY = (e.originalEvent && e.originalEvent.pageY != null) ? e.originalEvent.pageY : 10;
+        openContextMenu(e.target, pageX, pageY, e.renderedPosition || null, e.position || null);
+    });
+    $(document).on('mousedown', (ev) => {
+        if($(ev.target).closest('#ctxMenu').length === 0) $('#ctxMenu').hide();
+    });
+
+    // Delete / Backspace لحذف المحدد (بدون ما يأثر على الكتابة داخل inputs)
+    document.addEventListener('keydown', (ev) => {
+        const tag = (ev.target && ev.target.tagName) ? ev.target.tagName.toLowerCase() : '';
+        if(tag === 'input' || tag === 'textarea') return;
+        if(editingLocked) { guardEdit(); return; }
+        if(ev.key === 'Delete' || ev.key === 'Backspace') {
+            const sel = cy.$(':selected');
+            if(sel.nonempty()) {
+                // افتح قائمة فيها Delete بدل الحذف المباشر
+                const el = sel[0];
+                let pos = {x: 30, y: 30};
+                let rendered = null;
+                if(el.isNode && el.isNode()) {
+                    rendered = el.renderedPosition();
+                } else if(el.isEdge && el.isEdge()) {
+                    const s = el.source().renderedPosition();
+                    const t = el.target().renderedPosition();
+                    rendered = { x: (s.x + t.x)/2, y: (s.y + t.y)/2 };
+                }
+                if(rendered) {
+                    const r = cy.container().getBoundingClientRect();
+                    pos = { x: r.left + rendered.x, y: r.top + rendered.y };
+                }
+                openContextMenu(el, pos.x, pos.y, rendered);
+                ev.preventDefault();
+            }
+        }
+        if(ev.key === 'Escape') { $('#ctxMenu').hide(); cancelWireDrag(); unpin(); }
+    });
+
+    function renameNode() {
+        let n = prompt("الاسم الجديد:", targetEl.data('label'));
+        if(n) {
+            targetEl.data('label', n);
+            if(targetEl.id()==='n_in') $('#inputNode').val(n);
+            if(targetEl.id()==='n_out') $('#outputNode').val(n);
+        }
+    }
+
+    // ترتيب تلقائي Dagre
+    function runAutoLayout() {
+        try {
+            setStatus('تم حذف زر الترتيب الذكي.');
+            return;
+
+            // خلي المدخل والمخرج على الأطراف
+            const inN = cy.getElementById('n_in');
+            const outN = cy.getElementById('n_out');
+            const bb = cy.elements().boundingBox();
+            const midY = bb.y1 + bb.h/2;
+            if(inN && inN.nonempty()) inN.position({ x: bb.x1 - 120, y: midY });
+            if(outN && outN.nonempty()) outN.position({ x: bb.x2 + 120, y: midY });
+
+            cy.fit(cy.elements(), 40);
+            updateSmartCurves();
+        } catch(e) {
+            setStatus('Dagre layout مش متاح. تأكد إن ./vendor/cytoscape-dagre.min.js و ./vendor/dagre.min.js موجودين.');
+        }
+    }
+
+    // تقويس تلقائي ذكي لأسلاك رايح/راجع بين نفس العقدتين (يمنع تداخلهم)
+    function updateSmartCurves() {
+        const base = Number(document.getElementById('curveStrength')?.value ?? 70);
+        const step = Number(document.getElementById('curveSpacing')?.value ?? 30);
+        const avoidCross = Boolean(document.getElementById('avoidCross')?.checked ?? true);
+
+        // امسح أي bypass قديم
+        cy.edges().forEach(e => {
+            const hasHandles = Array.isArray(e.data('bendHandleIds')) && e.data('bendHandleIds').length > 0;
+            if(e.hasClass('manual-curved') || hasHandles) return;
+            e.removeStyle('curve-style');
+            e.removeStyle('control-point-distances');
+            e.removeStyle('control-point-weights');
+        });
+
+        // ترتيب LR: نعتبر العقد "متتالية" لو فرق ترتيبهم = 1
+        const orderedNodes = cy.nodes().filter(n => !n.hasClass('cursor-node') && !n.hasClass('bend-handle')).sort((a,b) => a.position('x') - b.position('x'));
+        const idx = new Map();
+        orderedNodes.forEach((n, i) => idx.set(n.id(), i));
+        function nodeIndex(nId) { return idx.has(nId) ? idx.get(nId) : 0; }
+        function gapAndDir(edge) {
+            const si = nodeIndex(edge.source().id());
+            const ti = nodeIndex(edge.target().id());
+            const gap = Math.abs(ti - si);
+            const dir = (si <= ti) ? 1 : -1; // forward = + (زي الصورة: فوق) / backward = - (تغذية راجعة: تحت)
+            return { gap, dir };
+        }
+
+        const pairs = new Map(); // undirected for opposite directions
+        const directed = new Map(); // directed multi-edges same direction
+        cy.edges().forEach(e => {
+            // لو المستخدم عمل تقويس يدوي، سيبه زي ما هو
+            if(e.hasClass('manual-curved') || e.hasClass('edgebendediting-hasbendpoints') || e.hasClass('edgecontrolediting-hascontrolpoints')) return;
+            const s = e.source().id();
+            const t = e.target().id();
+            if(s === t) return;
+
+            const dKey = `${s}__${t}`;
+            if(!directed.has(dKey)) directed.set(dKey, []);
+            directed.get(dKey).push(e);
+
+            const ordered = [s, t].sort();
+            const key = ordered.join('__');
+            if(!pairs.has(key)) pairs.set(key, {a: ordered[0], b: ordered[1], ab: [], ba: []});
+            const g = pairs.get(key);
+            if(s === g.a && t === g.b) g.ab.push(e);
+            else if(s === g.b && t === g.a) g.ba.push(e);
+        });
+
+        // ---- Auto curve placement: choose up/down to reduce clutter ----
+        function segIntersect(a,b,c,d) {
+            function orient(p,q,r){ return (q.x-p.x)*(r.y-p.y) - (q.y-p.y)*(r.x-p.x); }
+            function onSeg(p,q,r){
+                return Math.min(p.x,r.x) <= q.x && q.x <= Math.max(p.x,r.x) &&
+                       Math.min(p.y,r.y) <= q.y && q.y <= Math.max(p.y,r.y);
+            }
+            const o1 = orient(a,b,c), o2 = orient(a,b,d), o3 = orient(c,d,a), o4 = orient(c,d,b);
+            if(o1===0 && onSeg(a,c,b)) return true;
+            if(o2===0 && onSeg(a,d,b)) return true;
+            if(o3===0 && onSeg(c,a,d)) return true;
+            if(o4===0 && onSeg(c,b,d)) return true;
+            return (o1>0)!==(o2>0) && (o3>0)!==(o4>0);
+        }
+
+        function pointSegDist(p, a, b) {
+            const abx = b.x - a.x, aby = b.y - a.y;
+            const apx = p.x - a.x, apy = p.y - a.y;
+            const ab2 = abx*abx + aby*aby;
+            if(ab2 < 1e-6) return Math.hypot(apx, apy);
+            let t = (apx*abx + apy*aby) / ab2;
+            t = Math.max(0, Math.min(1, t));
+            const cx = a.x + t*abx, cyy = a.y + t*aby;
+            return Math.hypot(p.x - cx, p.y - cyy);
+        }
+
+        function polyFor(edge, dist) {
+            const s = edge.source().renderedPosition();
+            const t = edge.target().renderedPosition();
+            if(!dist || Math.abs(dist) < 1e-3) return [s, t];
+            const mx = (s.x + t.x)/2, my = (s.y + t.y)/2;
+            const dx = t.x - s.x, dy = t.y - s.y;
+            const len = Math.hypot(dx, dy) || 1;
+            const nx = -dy / len, ny = dx / len;
+            const cp = { x: mx + nx*dist, y: my + ny*dist };
+            return [s, cp, t];
+        }
+
+        function polyIntersections(p1, p2) {
+            let count = 0;
+            for(let i=0; i<p1.length-1; i++) {
+                for(let j=0; j<p2.length-1; j++) {
+                    if(segIntersect(p1[i], p1[i+1], p2[j], p2[j+1])) count += 1;
+                }
+            }
+            return count;
+        }
+
+        const nodesForPenalty = cy.nodes().filter(n => !n.hasClass('cursor-node') && !n.hasClass('bend-handle')).map(n => n.renderedPosition());
+
+        // Build ordered directed groups with metadata
+        const groups = [];
+        directed.forEach((list, key) => {
+            if(list.length === 0) return;
+            const sample = list[0];
+            const { gap } = gapAndDir(sample);
+            const sId = sample.source().id();
+            const tId = sample.target().id();
+            groups.push({ key, list, gap, sId, tId });
+        });
+        groups.sort((a,b) => (b.gap - a.gap) || (a.key.localeCompare(b.key)));
+
+        const assigned = []; // { poly, sId, tId }
+
+        function scoreCandidate(edge, dist) {
+            const poly = polyFor(edge, dist);
+            let score = 0;
+
+            // intersection penalty
+            if(avoidCross) {
+                for(const a of assigned) {
+                    // ignore shared endpoints
+                    const share = (a.sId === edge.source().id() || a.sId === edge.target().id() || a.tId === edge.source().id() || a.tId === edge.target().id());
+                    if(share) continue;
+                    score += 50 * polyIntersections(poly, a.poly);
+                }
+            }
+
+            // node proximity penalty (avoid running through nodes)
+            const thresh = 18;
+            for(const np of nodesForPenalty) {
+                // don't penalize endpoints too aggressively
+                const d1 = pointSegDist(np, poly[0], poly[1]);
+                const d2 = (poly.length === 2) ? 999 : pointSegDist(np, poly[1], poly[2]);
+                const d = Math.min(d1, d2);
+                if(d < thresh) score += (thresh - d) * 2;
+            }
+
+            // prefer smaller magnitude unless it helps
+            score += Math.abs(dist) * 0.02;
+            return { score, poly };
+        }
+
+        function applyDist(edge, dist) {
+            if(!dist || Math.abs(dist) < 1e-2) {
+                edge.removeStyle('curve-style');
+                edge.removeStyle('control-point-distances');
+                edge.removeStyle('control-point-weights');
+                return;
+            }
+            edge.style('curve-style', 'unbundled-bezier');
+            edge.style('control-point-weights', 0.5);
+            edge.style('control-point-distances', dist);
+        }
+
+        // Assign distances group-by-group
+        for(const g of groups) {
+            const list = g.list;
+            const n = list.length;
+            const sample = list[0];
+            const { gap } = gapAndDir(sample);
+            const baseMag = (gap > 1 && base > 0) ? (base * (gap - 1)) : 0;
+
+            // group spread offsets
+            const spreads = [];
+            for(let i=0; i<n; i++) spreads.push((i - (n-1)/2) * step);
+
+            // choose best sign (+ or -) for long edges; consecutive edges default to 0 + spread
+            const signCandidates = (baseMag > 0) ? [1, -1] : [0];
+            let bestSign = signCandidates[0];
+            let bestScore = Infinity;
+
+            for(const sgn of signCandidates) {
+                let total = 0;
+                // score a representative by averaging all edges in group with their spreads
+                for(let i=0; i<n; i++) {
+                    const dist = (sgn === 0 ? 0 : sgn * baseMag) + spreads[i];
+                    total += scoreCandidate(list[i], dist).score;
+                }
+                // tiny tie-break to avoid same side everywhere
+                total += (sgn === 1 ? 0.01 : 0.02);
+                if(total < bestScore) { bestScore = total; bestSign = sgn; }
+            }
+
+            for(let i=0; i<n; i++) {
+                const dist = (bestSign === 0 ? 0 : bestSign * baseMag) + spreads[i];
+                applyDist(list[i], dist);
+                assigned.push({ poly: polyFor(list[i], dist), sId: list[i].source().id(), tId: list[i].target().id() });
+            }
+        }
+
+        // Opposite directions: if both exist, ensure separation even لو consecutive (prettier)
+        pairs.forEach(g => {
+            if(g.ab.length === 0 || g.ba.length === 0) return;
+            const leftIdx = nodeIndex(g.a);
+            const rightIdx = nodeIndex(g.b);
+            const gap = Math.abs(rightIdx - leftIdx);
+            const extra = (base > 0) ? (base * Math.max(1, gap - 1)) : 0;
+
+            g.ab.forEach((e, i) => {
+                if(e.hasClass('edgebendediting-hasbendpoints') || e.hasClass('edgecontrolediting-hascontrolpoints')) return;
+                const curr = Number(e.style('control-point-distances'));
+                const v = (isNaN(curr) ? 0 : curr);
+                applyDist(e, v + (extra + i*step));
+            });
+            g.ba.forEach((e, i) => {
+                if(e.hasClass('edgebendediting-hasbendpoints') || e.hasClass('edgecontrolediting-hascontrolpoints')) return;
+                const curr = Number(e.style('control-point-distances'));
+                const v = (isNaN(curr) ? 0 : curr);
+                applyDist(e, v - (extra + i*step));
+            });
+        });
+    }
+
+    function syncMiniCurves() {
+        return; // Mini visualizer removed.
+        if(!window.mini) return;
+        const g = window.mini;
+        const props = ['curve-style','control-point-distances','control-point-weights','segment-distances','segment-weights'];
+        const mainZoom = (cy && cy.zoom) ? (cy.zoom() || 1) : 1;
+        const miniZoom = (g && g.zoom) ? (g.zoom() || 1) : 1;
+        // Distances behave like model-units in Cytoscape styling; adjust for differing zoom to preserve the same visual curvature.
+        const ratio = (mainZoom || 1) / (miniZoom || 1);
+
+        function _scaleMaybe(prop, v) {
+            if(prop !== 'control-point-distances' && prop !== 'segment-distances') return v;
+            const scale = (x) => (typeof x === 'number' && isFinite(x)) ? (x * ratio) : x;
+            if(Array.isArray(v)) return v.map(scale);
+            if(typeof v === 'string') {
+                const parts = v.trim().split(/\s+/).filter(Boolean);
+                if(parts.length > 1) {
+                    return parts.map(p => scale(parseFloat(p))).filter(x => typeof x === 'number' && !isNaN(x));
+                }
+                const n = parseFloat(v);
+                return isNaN(n) ? v : scale(n);
+            }
+            return scale(v);
+        }
+
+        function copyBypass(src, dst, prop) {
+            try {
+                const ps = src.pstyle ? src.pstyle(prop) : null;
+                if(ps && ps.bypassed) dst.style(prop, _scaleMaybe(prop, src.style(prop)));
+                else dst.removeStyle(prop);
+            } catch(e) {}
+        }
+
+        cy.edges().forEach(e => {
+            if(e.hasClass && e.hasClass('temp-wire')) return;
+            const me = g.getElementById(e.id());
+            if(!me || me.empty()) return;
+            props.forEach(p => copyBypass(e, me, p));
+        });
+    }
+
+    cy.on('add remove', 'edge', () => updateSmartCurves());
+
+    // ---- Validation (before solve) ----
+    function normalizeGainExpr(expr) {
+        return String(expr ?? '1').trim().replace(/\^/g, '**') || '1';
+    }
+
+    function clearValidationMarks() {
+        try { cy.elements().removeClass('invalid warn'); } catch(e) {}
+    }
+
+    function _nodeByLabelMain(label) {
+        const safe = String(label).replace(/"/g, '\\"');
+        return cy.nodes(`[label="${safe}"]`);
+    }
+
+    function _markEdgeByLabels(fromLabel, toLabel, cls) {
+        const s = _nodeByLabelMain(fromLabel);
+        const t = _nodeByLabelMain(toLabel);
+        if(s.empty() || t.empty()) return;
+        cy.edges(`[source="${s.id()}"][target="${t.id()}"]`).addClass(cls);
+    }
+
+    function applyValidationResult(result) {
+        clearValidationMarks();
+        const errs = result?.errors || [];
+        const warns = result?.warnings || [];
+
+        errs.forEach(e => {
+            (e.nodes || []).forEach(n => _nodeByLabelMain(n).addClass('invalid'));
+            if(e.edge && e.edge.from != null && e.edge.to != null) _markEdgeByLabels(e.edge.from, e.edge.to, 'invalid');
+        });
+        warns.forEach(w => {
+            (w.nodes || []).forEach(n => _nodeByLabelMain(n).addClass('warn'));
+            if(w.edge && w.edge.from != null && w.edge.to != null) _markEdgeByLabels(w.edge.from, w.edge.to, 'warn');
+        });
+
+        const first = cy.$('.invalid, .warn').first();
+        if(first && first.nonempty()) ensureVisible(first);
+
+        if(errs.length) setStatus(`❌ Validation: ${errs[0].message}`);
+        else if(warns.length) setStatus(`⚠️ Validation: ${warns[0].message}`);
+    }
+
+    async function validateDiagramPayload(payload) {
+        try {
+            // التعديل تم هنا: كتبنا /validate بدل الرابط الطويل
+            const res = await fetch('/validate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+            return await res.json();
+        } catch(e) {
+            return { status:'error', errors:[{type:'network', message:`Failed to validate: ${e.message}`}] };
+        }
+    }
+
+    // حل ماسون المفصل
+    async function solveMaster() {
+        clearValidationMarks();
+        let payload = {
+            input_node: $('#inputNode').val(),
+            output_node: $('#outputNode').val(),
+            connections: cy.edges()
+                .filter(e => !e.hasClass('temp-wire'))
+                .map(e => ({
+                    id: e.id(), // 🔥 إرسال الـ ID السري
+                    from_node: e.source().data('label'), 
+                    to_node: e.target().data('label'), 
+                    gain: normalizeGainExpr(e.data('gain')||'1')
+                }))
+        };
+
+        const v = await validateDiagramPayload(payload);
+        if(v && v.status === 'error') { applyValidationResult(v); return; }
+        if(v && v.status === 'success' && Array.isArray(v.warnings) && v.warnings.length) applyValidationResult(v);
+         
+        openResults();
+        setEditingLocked(true);
+        setActiveArea('results');
+        $('#resContent').html("⌛ جاري استخراج المسارات والحلقات...");
+
+        try {
+            // التعديل تم هنا: كتبنا /solve بدل الرابط الطويل
+            let res = await fetch('/solve', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+            let json = await res.json();
+            
+            if(json.status === "error") throw new Error(json.message);
+
+            const solverWarn = json.mason_mismatch
+                ? `<div style="margin-top:10px; font-size:12px; color:#c0392b; font-weight:bold;">
+                       تنبيه: تم استخدام حل المعادلات الخطية لضمان الدقة.
+                   </div>`
+                : ``;
+
+            let html = `<div style="text-align:center; padding:15px; background:#f1f2f6; border-radius:10px; margin-bottom:20px;">
+                        <h2 style="margin:0;">Transfer Function:</h2>
+                        \\[ T = ${json.transfer_function} \\]
+                        <div style="margin-top:10px; font-size:12px; color:#57606f;">
+                            Mason: \\[ \\sum P_k\\Delta_k = ${json.numerator} \\]
+                        </div>
+                        ${solverWarn}
+                        </div>`;
+
+            html += `<h3>1. Forward Paths (P) & Cofactors (Δk):</h3>`;
+            json.paths.forEach((p, i) => {
+                const eIds = (p.edge_ids || []).join(',');
+                html += `<div class="hover-item" onmouseover="high('${p.path.join(',')}', '${eIds}', false)" onmouseout="low()" onclick="pinNodes('${p.path.join(',')}', '${eIds}', false)">
+                            <b>P${i+1}:</b> ${p.path.join('➔')} <br> \\[ P_{${i+1}} = ${p.gain} \\quad , \\quad \\Delta_{${i+1}} = ${p.delta_k} \\]
+                         </div>`;
+            });
+
+            html += `<h3>2. Individual Loops (L):</h3>`;
+            json.loops.forEach((l, i) => {
+                const eIds = (l.edge_ids || []).join(',');
+                html += `<div class="hover-item" onmouseover="high('${l.loop.join(',')}', '${eIds}', true)" onmouseout="low()" onclick="pinNodes('${l.loop.join(',')}', '${eIds}', true)">
+                            <b>L${i+1}:</b> ${l.loop.join('➔')}➔${l.loop[0]} <br> \\[ L_{${i+1}} = ${json.loops[i].gain} \\]
+                         </div>`;
+            });
+
+            if(json.non_touching.length > 0) {
+                html += `<h3>3. Non-touching Loops:</h3>`;
+                json.non_touching.forEach(nt => {
+                    html += `<b>${nt.type}:</b><br>`;
+                    nt.details.forEach(d => {
+                        const enc = encodeURIComponent(JSON.stringify(d.combos));
+                        const eIds = (d.combo_edge_ids || []).join(',');
+                        html += `<div class="hover-item" style="font-size:13px; color:#c0392b;" onmouseover="highCombo('${enc}', '${eIds}')" onmouseout="low()" onclick="pinCombo('${enc}', '${eIds}')">
+                                    • [ ${d.combos.map(c=>c.join('➔')).join(' ] ✖️ [ ')} ] <br> \\[ ${d.gain} \\]
+                                 </div>`;
+                    });
+                });
+            }
+
+            html += `<h3>4. Determinant (Δ):</h3> \\[ \\Delta = ${json.delta} \\]`;
+
+            $('#resContent').html(html);
+
+            _pinActive = false;
+            low();
+
+            try { if(window.MathJax && MathJax.typeset) MathJax.typeset(); } catch(e) {}
+
+        } catch(e) { $('#resContent').html(`<h3 style="color:red;">❌ خطأ: ${e.message}</h3>`); }
+    }
+
+    // ==========================================
+    // 🔥 Highlight Functions (محصنة ضد الأخطاء)
+    // ==========================================
+    let _pinActive = false;
+    function pinNodes(nodesStr, edgeIdsStr, isLoop) { _pinActive = true; high(nodesStr, edgeIdsStr, isLoop); }
+    function pinCombo(enc, edgeIdsStr) { _pinActive = true; highCombo(enc, edgeIdsStr); }
+    function unpin() { _pinActive = false; low(); }
+
+    function _graphs() { return window.cy ? [{ g: window.cy, dim: true }] : []; }
+    function _nodeByLabelIn(graph, label) { const safe = String(label).replace(/"/g, '\\"'); return graph.nodes(`[label="${safe}"]`); }
+
+    function high(nodesStr, edgeIdsStr, isLoop=false) {
+        const nodesArray = nodesStr ? nodesStr.split(',') : [];
+        const edgesArray = (typeof edgeIdsStr === 'string' && edgeIdsStr.trim() !== '') ? edgeIdsStr.split(',') : [];
+        
+        _graphs().forEach(({g, dim}) => {
+            if(dim) g.elements().addClass('dim');
+            
+            // 1. تلوين العقد
+            nodesArray.forEach(l => { _nodeByLabelIn(g, l).removeClass('dim').addClass('highlight'); });
+            
+            // 2. تلوين الأسلاك
+            if (edgesArray.length > 0) {
+                // الطريقة الدقيقة بالـ ID (لو البايثون محدث وشغال)
+                edgesArray.forEach(eid => {
+                    const edge = g.getElementById(eid);
+                    if(edge && edge.nonempty()) edge.removeClass('dim').addClass('highlight');
+                });
+            } else {
+                // الطريقة البديلة المضمونة لتقفيل اللوب
+                for(let i=0; i < nodesArray.length - 1; i++) {
+                    const s = _nodeByLabelIn(g, nodesArray[i]);
+                    const t = _nodeByLabelIn(g, nodesArray[i+1]);
+                    if(s.nonempty() && t.nonempty()) {
+                        g.edges(`[source="${s.id()}"][target="${t.id()}"]`).removeClass('dim').addClass('highlight');
+                    }
+                }
+                if (isLoop && nodesArray.length > 1) {
+                    const last = _nodeByLabelIn(g, nodesArray[nodesArray.length-1]);
+                    const first = _nodeByLabelIn(g, nodesArray[0]);
+                    if(last.nonempty() && first.nonempty()) {
+                        g.edges(`[source="${last.id()}"][target="${first.id()}"]`).removeClass('dim').addClass('highlight');
+                    }
+                }
+            }
+        });
+    }
+
+    function highCombo(enc, edgeIdsStr) {
+        let combos;
+        try { combos = JSON.parse(decodeURIComponent(enc)); } catch(e) { combos = []; }
+        const edgesArray = (typeof edgeIdsStr === 'string' && edgeIdsStr.trim() !== '') ? edgeIdsStr.split(',') : [];
+        
+        _graphs().forEach(({g, dim}) => {
+            if(dim) g.elements().addClass('dim');
+            
+            (combos || []).forEach(loop => {
+                if(!Array.isArray(loop) || loop.length === 0) return;
+                
+                loop.forEach(l => _nodeByLabelIn(g, l).removeClass('dim').addClass('highlight'));
+                
+                if (edgesArray.length === 0) {
+                    for(let i=0; i < loop.length - 1; i++) {
+                        const s = _nodeByLabelIn(g, loop[i]);
+                        const t = _nodeByLabelIn(g, loop[i+1]);
+                        if(s.nonempty() && t.nonempty()) {
+                            g.edges(`[source="${s.id()}"][target="${t.id()}"]`).removeClass('dim').addClass('highlight');
+                        }
+                    }
+                    const last = _nodeByLabelIn(g, loop[loop.length-1]);
+                    const first = _nodeByLabelIn(g, loop[0]);
+                    if(last.nonempty() && first.nonempty()) {
+                        g.edges(`[source="${last.id()}"][target="${first.id()}"]`).removeClass('dim').addClass('highlight');
+                    }
+                }
+            });
+            
+            if (edgesArray.length > 0) {
+                edgesArray.forEach(eid => {
+                    const edge = g.getElementById(eid);
+                    if(edge && edge.nonempty()) edge.removeClass('dim').addClass('highlight');
+                });
+            }
+        });
+    }
+
+    function low() {
+        if(_pinActive) return;
+        _graphs().forEach(({g, dim}) => {
+            g.elements().removeClass('highlight');
+            if(dim) g.elements().removeClass('dim');
+        });
+    }
+
+    // Tools
+    function saveDiagram() { 
+        // 1. استخراج حالة التقويس بالمللي لكل سلك وحفظها في الـ data قبل تصدير الملف
+        cy.edges().forEach(e => {
+            e.data('saved_curve_style', e.style('curve-style'));
+            e.data('saved_cp_distances', e.style('control-point-distances'));
+            e.data('saved_cp_weights', e.style('control-point-weights'));
+            e.data('saved_classes', e.classes()); // حفظ الكلاسات عشان نعرف السلك اللي اتقوس يدوياً
+        });
+
+        const now = new Date();
+        const dateStr = now.toISOString().slice(0, 10);
+        const timeStr = now.getHours() + "-" + now.getMinutes() + "-" + now.getSeconds();
+        const fileName = `SFG_${dateStr}_${timeStr}.json`;
+
+        let b = new Blob([JSON.stringify(cy.json())], {type:'application/json'}); 
+        let a = document.createElement('a'); 
+        a.href = URL.createObjectURL(b); 
+        a.download = fileName; 
+        a.click(); 
+    }
+
+    function loadDiagram(e) { 
+        if(guardEdit()) return;
+        
+        let file = e.target.files[0];
+        if (!file) return; 
+        
+        let reader = new FileReader(); 
+        reader.onload = (f) => { 
+            try {
+                let data = JSON.parse(f.target.result);
+                cy.json(data); 
+                
+                // 2. استرجاع حالة التقويس بالمللي لكل سلك وتطبيقها فوراً
+                cy.edges().forEach(e => {
+                    let cs = e.data('saved_curve_style');
+                    let cpd = e.data('saved_cp_distances');
+                    let cpw = e.data('saved_cp_weights');
+                    let cls = e.data('saved_classes');
+                    
+                    // إرجاع الكلاسات (عشان التقويس التلقائي يتجاهل السلوك اللي انت مقوسها بإيدك)
+                    if (cls) e.classes(cls); 
+                    
+                    // تطبيق مسافات وأوزان التقويس
+                    if (cs === 'unbundled-bezier' || cs === 'segments') {
+                        e.style({
+                            'curve-style': cs,
+                            'control-point-distances': cpd,
+                            'control-point-weights': cpw
+                        });
+                    }
+                });
+
+                // استرجاع أسماء المدخل والمخرج
+                $('#inputNode').val(cy.getElementById('n_in').data('label') || 'R');
+                $('#outputNode').val(cy.getElementById('n_out').data('label') || 'Y');
+                
+                try { document.getElementById('avoidCross').checked = true; } catch(err) {}
+                
+                updateSmartCurves();
+                setTimeout(() => {
+                    updateSmartCurves();
+                    SFG.camera.focus(); // تظبيط الكاميرا على الرسمة
+                }, 50);
+                
+                setStatus('✅ تم تحميل المخطط بجميع تفاصيله وتقويساته بنجاح!');
+            } catch(err) {
+                setStatus('❌ خطأ: الملف غير صالح أو تالف!');
+            }
+            e.target.value = ''; 
+        }; 
+        reader.readAsText(file); 
+    }
+    function exportToPNG() { 
+        const now = new Date();
+        const dateStr = now.toISOString().slice(0, 10);
+        const timeStr = now.getHours() + "-" + now.getMinutes() + "-" + now.getSeconds();
+        const fileName = `SFG_${dateStr}_${timeStr}.png`;
+
+        let b = cy.png({full:true, scale:2, bg:'white'}); 
+        let a = document.createElement('a'); 
+        a.href = b; 
+        a.download = fileName; 
+        a.click(); 
+    }
+
+    function clearFullCanvas() {
+        if(guardEdit()) return;
+        if(confirm("هل أنت متأكد من مسح المخطط بالكامل؟ لا يمكن التراجع عن هذه الخطوة.")) {
+            // مسح كل شيء
+            cy.elements().remove();
+            
+            // إعادة إضافة المدخل والمخرج الافتراضيين
+            const inLabel = $('#inputNode').val() || 'R';
+            const outLabel = $('#outputNode').val() || 'Y';
+            cy.add([
+                {group:'nodes', data:{id:'n_in', label:inLabel}, position:{x:100,y:300}},
+                {group:'nodes', data:{id:'n_out', label:outLabel}, position:{x:700,y:300}}
+            ]);
+            
+            updateSmartCurves();
+            renderProps();
+            setStatus('تم مسح المخطط وبدء رسم جديد.');
+            SFG.camera.focus();
+        }
+    }
+
+    // عند رسم سلك جديد: اطلب Gain + شغّل التقويس الذكي
+    cy.on('ehcomplete', function (event, sourceNode, targetNode, addedEdges) {
+        (addedEdges || []).forEach(edge => {
+            if(!edge.data('gain')) edge.data('gain', '1');
+            // المستخدم يحدد الـ Gain بعد التوصيل (click/right-click على السلك)
+        });
+        updateSmartCurves();
+    });
+
+    updateSmartCurves();
+    renderProps();
+    initResultsResizer();
+    cy.on('select unselect', 'node, edge', () => renderProps());
+    cy.on('remove', 'node, edge', () => renderProps());
+</script>
+</body>
+</html>
