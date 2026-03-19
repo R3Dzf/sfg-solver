@@ -174,7 +174,6 @@ def _transfer_function_linear(G: nx.DiGraph, input_node: str, output_node: str) 
     return sp.simplify(x[idx[output_node], 0])
 
 @app.post("/solve")
-@app.post("/solve")
 def solve_diagram(data: DiagramData):
     try:
         G = nx.DiGraph()
