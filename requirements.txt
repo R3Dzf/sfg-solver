@@ -3,3 +3,6 @@ uvicorn
 networkx
 sympy
 pydantic
+
+
+test
